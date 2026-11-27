@@ -1,5 +1,5 @@
-import { Component, Subscription, UiSchema } from "@effect/ui"
-import { Html } from "@effect/ui/html"
+import { Command, Component, Subscription, UiSchema } from "@effect/ui"
+import { Html, HtmlSubscription } from "@effect/ui/html"
 import { Effect, Schema, Stream } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import type { ThreadStatus, ThreadSummary } from "../../shared/domain.ts"
@@ -17,8 +17,23 @@ export const AppMessage = UiSchema.TaggedEnum({
   ClickedSettings: {},
   RequestedCloseSettings: {},
   RequestedCloseThread: {},
-  DeletedThread: {}
+  DeletedThread: {},
+  PressedEscape: {},
+  VoiceAskedToShow: { id: Schema.NullOr(Schema.String) }
 })
+
+/**
+ * Opens a thread the way a click does, one frame after its row has been
+ * marked as the one about to open, so the row is what grows into the thread.
+ */
+export class OpenMarkedThread extends Command.Service<OpenMarkedThread>()(
+  "app/OpenMarkedThread",
+  { args: { id: Schema.String }, success: AppMessage }
+) {
+  static readonly layer = this.toLayer(
+    Effect.succeed(({ id }) => Effect.as(Effect.sleep("60 millis"), AppMessage.ClickedThread({ id })))
+  )
+}
 
 type H = Html.H<typeof AppMessage.Type>
 
@@ -32,13 +47,13 @@ const rank: Record<ThreadStatus, number> = { waiting: 0, error: 0, running: 1, i
 const MORPH = "thread-morph"
 
 /** A thread in two lines: what it is, and where it stands. */
-const ThreadRow = (h: H, thread: ThreadSummary, selected: boolean, morphs: boolean) => {
+const ThreadRow = (h: H, thread: ThreadSummary, morphs: boolean) => {
   const done = thread.todos.filter((todo) => todo.status === "completed").length
   const busy = thread.status === "running" || thread.status === "waiting"
   const state = thread.activity !== "" ? thread.activity : thread.preview
   return h.li.key(thread.id).children(
-    h.button.class("row", `is-${thread.status}`, selected && "selected")
-      .attrs({ type: "button", "aria-pressed": String(selected) })
+    h.button.class("row", `is-${thread.status}`)
+      .attr("type", "button")
       .style({ viewTransitionName: morphs ? MORPH : "none" })
       // The press comes before the click, which is when the row has to be
       // marked as the one about to open.
@@ -52,7 +67,7 @@ const ThreadRow = (h: H, thread: ThreadSummary, selected: boolean, morphs: boole
         ),
         busy && thread.todos.length > 0 && h.span.class("row-count").children(`${done}/${thread.todos.length}`),
         thread.permissionMode === "bypassPermissions" &&
-          h.span.class("bypass").attr("title", "Runs without asking").children("bypass")
+          h.span.class("bypass").attr("title", "Runs without asking").children("Bypass")
       )
   )
 }
@@ -74,33 +89,51 @@ export const AppNoDeps = Html.component({
   }
 }).make({
   init: () => ({ selectedId: null, settingsOpen: false, armedId: null, returnId: null }),
-  // Each change of what is open is one view transition, tagged with what
-  // happened so the stylesheet can give each its own motion:
-  // - open: a row expands into its panel
-  // - close: the panel shrinks back into its row
-  // - switch: one panel gives way to another
+  // The window shows one thing at a time: the list, an open thread, or
+  // settings. Each change is one view transition, tagged with what happened so
+  // the stylesheet can give each its own motion:
+  // - open: a row expands into the whole window
+  // - close: the thread shrinks back into its row
+  // - switch: settings gives way to what is under it, or the other way round
   update: {
     PressedThread: ($, { id }) => $.evolve({ armedId: id, returnId: null }),
-    ClickedThread: ($, { id }) => {
-      const open = $.model.settingsOpen ? null : $.model.selectedId
-      if (open === id) {
-        return $.evolve({ selectedId: null, armedId: null, returnId: id }).viewTransition(["close"])
-      }
-      const fromList = open === null && !$.model.settingsOpen
-      return $.evolve({ selectedId: id, settingsOpen: false, armedId: null, returnId: null })
-        .viewTransition([fromList ? "open" : "switch"])
-    },
+    ClickedThread: ($, { id }) =>
+      $.evolve({ selectedId: id, settingsOpen: false, armedId: null, returnId: null }).viewTransition(["open"]),
     SettledClose: ($) => $.evolve({ returnId: null }),
     ClickedSettings: ($) =>
       $.evolve({ settingsOpen: !$.model.settingsOpen, armedId: null, returnId: null }).viewTransition(["switch"]),
     RequestedCloseSettings: ($) => $.evolve({ settingsOpen: false }).viewTransition(["switch"]),
     RequestedCloseThread: ($) =>
       $.evolve({ selectedId: null, armedId: null, returnId: $.model.selectedId }).viewTransition(["close"]),
-    DeletedThread: ($) => $.evolve({ selectedId: null, armedId: null, returnId: null }).viewTransition(["close"])
+    DeletedThread: ($) => $.evolve({ selectedId: null, armedId: null, returnId: null }).viewTransition(["close"]),
+    // The assistant puts a thread on screen, or goes back to the list, with
+    // the same motion a click or Escape would have.
+    VoiceAskedToShow: ($, { id }) => {
+      const open = $.model.settingsOpen || $.model.selectedId !== null
+      if (id === null) {
+        if (!open) return $.model
+        return $.model.settingsOpen
+          ? $.evolve({ settingsOpen: false, selectedId: null, armedId: null, returnId: null }).viewTransition(["switch"])
+          : $.evolve({ selectedId: null, armedId: null, returnId: $.model.selectedId }).viewTransition(["close"])
+      }
+      if (open) {
+        return $.model.selectedId === id && !$.model.settingsOpen
+          ? $.model
+          : $.evolve({ selectedId: id, settingsOpen: false, armedId: null, returnId: null }).viewTransition(["switch"])
+      }
+      return $.evolve({ armedId: id, returnId: null }).run(OpenMarkedThread.make({ id }))
+    },
+    // Escape goes back one step: out of settings, then out of the thread.
+    PressedEscape: ($) =>
+      $.model.settingsOpen
+        ? $.evolve({ settingsOpen: false }).viewTransition(["switch"])
+        : $.evolve({ selectedId: null, armedId: null, returnId: $.model.selectedId }).viewTransition(["close"])
   },
   // Once the panel has landed back in its row, the row gives the shared name
   // up, so the next row to open can take it.
   subscriptions: ({ model }) => [
+    (model.settingsOpen || model.selectedId !== null) &&
+    HtmlSubscription.onDocument("keydown", ({ key }) => key === "Escape" ? AppMessage.PressedEscape() : undefined),
     model.returnId !== null &&
     Subscription.make(
       "settle-close",
@@ -115,29 +148,35 @@ export const AppNoDeps = Html.component({
     // A thread that was deleted elsewhere leaves nothing to show.
     const selectedId = threads.some((thread) => thread.id === model.selectedId) ? model.selectedId : null
     const detail = model.settingsOpen || selectedId !== null
-    return h.div.class("shell", detail && "has-detail").onMount(MarkReady({ after: 900 })).children(
+    return h.div.class("shell", detail && "has-detail", threads.length === 0 && "is-empty")
+      .onMount(MarkReady({ after: 900 })).children(
       h.header.class("topbar").children(
         h.button.class("icon-btn", model.settingsOpen && "active")
           .attrs({ type: "button", title: "Settings", "aria-label": "Settings", "aria-pressed": String(model.settingsOpen) })
           .on("click", AppMessage.ClickedSettings()).children(Icon(h, "settings"))
       ),
-      h.main.class("board", threads.length === 0 && "is-empty").children(
-        threads.length > 0 &&
-          h.ul.class("rows").attr("aria-label", "Threads").children(
+      // Voice runs under the list and the open thread alike. It comes first
+      // so that it stays the same element while they trade places.
+      VoiceOrb(h, {
+        // The conversation is told which thread is in front of the user.
+        props: { openThreadId: model.settingsOpen ? null : selectedId },
+        onEmit: { RequestedShow: ({ threadId }) => AppMessage.VoiceAskedToShow({ id: threadId }) }
+      }),
+      // The list is only there when nothing is open: an open thread has the
+      // window to itself.
+      !detail && h.main.class("board").children(
+        threads.length === 0
+          ? AsyncResult.isSuccess(h.queries.summaries) && h.div.class("board-hint").children(
+            h.p.class("board-hint-title").children("No threads yet"),
+            h.p("Press Space and say what you want built.")
+          )
+          : h.ul.class("rows").attr("aria-label", "Threads").children(
             ...threads.map((thread) =>
-              ThreadRow(
-                h,
-                thread,
-                thread.id === selectedId && !model.settingsOpen,
-                // A pressed row takes the name only when nothing is open: with a
-                // panel on screen, the panel already has it.
-                (model.armedId === thread.id && !detail) || model.returnId === thread.id
-              )
+              ThreadRow(h, thread, model.armedId === thread.id || model.returnId === thread.id)
             )
-          ),
-        VoiceOrb(h, {})
+          )
       ),
-      detail && h.aside.class("detail").children(
+      detail && h.main.class("detail").children(
         model.settingsOpen
           ? SettingsPanel(h, {
             props: { account },
@@ -157,4 +196,6 @@ export const AppNoDeps = Html.component({
   }
 })
 
-export const App = AppNoDeps.pipe(Component.provide([WatchSummaries.layer, WatchAccount.layer]))
+export const App = AppNoDeps.pipe(
+  Component.provide([WatchSummaries.layer, WatchAccount.layer, OpenMarkedThread.layer])
+)

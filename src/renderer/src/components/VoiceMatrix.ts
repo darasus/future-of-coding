@@ -23,11 +23,20 @@ const clamp = (value: number) => Math.min(1, Math.max(0, value))
 const bandLevel = (bands: Uint8Array | null, binHz: number, from: number, to: number): number => {
   if (bands === null || binHz === 0) return 0
   const hz = (position: number) => LOW_HZ * Math.pow(HIGH_HZ / LOW_HZ, position)
-  const first = Math.floor(hz(from) / binHz)
-  const last = Math.min(bands.length - 1, Math.max(first, Math.floor(hz(to) / binHz)))
+  const low = hz(from)
+  const high = hz(to)
+  // The display is wide, so at the low end a column is far narrower than one
+  // measurement. Reading between measurements keeps neighbours from moving in
+  // blocks; a column that spans several takes their average.
+  const samples = Math.max(1, Math.ceil((high - low) / binHz))
   let sum = 0
-  for (let bin = first; bin <= last; bin++) sum += bands[bin] ?? 0
-  const average = sum / (last - first + 1) / 255
+  for (let sample = 0; sample < samples; sample++) {
+    const at = Math.min(bands.length - 1, (low + ((sample + 0.5) / samples) * (high - low)) / binHz)
+    const below = Math.floor(at)
+    const above = Math.min(bands.length - 1, below + 1)
+    sum += (bands[below] ?? 0) + ((bands[above] ?? 0) - (bands[below] ?? 0)) * (at - below)
+  }
+  const average = sum / samples / 255
   // Room noise sits at the bottom of the scale. Above it the curve is steep,
   // so the pitches a voice is actually on stand well clear of the rest.
   return clamp(Math.pow(clamp((average - 0.24) / 0.6), 1.5))
@@ -36,7 +45,13 @@ const bandLevel = (bands: Uint8Array | null, binHz: number, from: number, to: nu
 /**
  * Runs a dot-matrix display on a canvas until the returned function is called.
  *
- * Idle, a slow wave drifts along the middle row. While a session connects, a
+ * Only lit lamps are drawn. The unlit ones are the window's own backdrop, a
+ * grid of the same lamps on the same pitch (`body::after` in the stylesheet),
+ * so the display is the part of the window that lights up. For the two to
+ * line up, the canvas starts at the window's left edge and its bottom edge
+ * sits a whole number of lamps above the window's.
+ *
+ * Idle, a slow swell rests on the middle row. While a session connects, a
  * pulse sweeps across. Live, each column is a slice of pitch, low in the
  * centre and high at the edges, and it stands as tall as that pitch is loud:
  * your voice in the text colour, the assistant's in the accent. The lamp at
@@ -82,8 +97,9 @@ const runMatrix = (canvas: HTMLCanvasElement, state: () => State, read: () => Sp
     context.clearRect(0, 0, width, height)
     if (columns === 0 || rows <= 0) return
 
-    const left = (width - (columns * PITCH - (PITCH - LAMP))) / 2
-    const top = (height - (rows * PITCH - (PITCH - LAMP))) / 2
+    // Flush with the left and bottom edges, where the backdrop's grid starts.
+    const left = 0
+    const top = height - (rows * PITCH - (PITCH - LAMP))
     const half = (rows - 1) / 2
     const centre = (columns - 1) / 2
     const spectrum = mode === "live" ? read() : null
@@ -110,7 +126,11 @@ const runMatrix = (canvas: HTMLCanvasElement, state: () => State, read: () => Sp
         target = clamp(1 - Math.min(distance, 1 - distance) * 8) * 0.75
         speaker[column] = 1
       } else {
-        target = 0.1 + 0.1 * Math.sin(column * 0.38 + drift * 0.0011) + 0.06 * Math.sin(column * 0.13 - drift * 0.0017)
+        // A swell in the middle of the window that settles to a single line
+        // well before the edges.
+        const swell = Math.pow(Math.cos((fromCentre * Math.PI) / 2), 2)
+        target = swell *
+          (0.16 + 0.1 * Math.sin(column * 0.21 + drift * 0.0011) + 0.07 * Math.sin(column * 0.057 - drift * 0.0017))
         speaker[column] = 0
       }
 
@@ -123,19 +143,23 @@ const runMatrix = (canvas: HTMLCanvasElement, state: () => State, read: () => Sp
 
       const lit = Math.round(level * half)
       const hung = Math.round(peak * half)
-      const colour = speaker[column] === 1 ? theirs : mine
       const x = left + column * PITCH
-      for (let row = 0; row < rows; row++) {
+      // The line thins out toward the edges of the window instead of stopping there.
+      const reach = 1 - Math.pow(fromCentre, 3) * 0.8
+      // A resting line is quiet; it brightens as soon as there is sound on it.
+      const presence = mode === "off" ? 0.3 : 0.45 + 0.55 * clamp(level * 5)
+      context.fillStyle = speaker[column] === 1 ? theirs : mine
+      for (let row = half - Math.max(lit, hung); row <= half + Math.max(lit, hung); row++) {
         const distance = Math.abs(row - half)
-        let alpha = 0.055
+        let alpha = 0
         if (distance <= lit) {
           // Brightest in the middle, dimmer toward the tip.
-          alpha = mode === "off" ? 0.3 : 1 - (distance / (half + 1)) * 0.55
-        } else if (mode === "live" && distance === hung && hung > lit) {
+          alpha = presence * (1 - (distance / (half + 1)) * 0.55)
+        } else if (mode === "live" && distance === hung) {
           alpha = 0.5
         }
-        context.globalAlpha = alpha
-        context.fillStyle = alpha <= 0.055 ? mine : colour
+        if (alpha === 0) continue
+        context.globalAlpha = alpha * reach
         context.fillRect(x, top + row * PITCH, LAMP, LAMP)
       }
     }

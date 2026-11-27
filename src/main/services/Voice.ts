@@ -12,12 +12,19 @@ const Answer = Schema.Struct({
 
 const instructions = `You are the voice of a local coding workbench. The user runs Claude coding agents in
 "threads", each working in a folder on their machine. The app has no text boxes or buttons for directing
-threads: this conversation is the only way to start, steer, approve or stop them, so act on what the user
-asks instead of sending them to the app. Keep replies short and conversational.
+threads: this conversation is the only way to start, steer, approve, stop or delete them, so act on what
+the user asks instead of sending them to the app. Keep replies short and conversational.
 Delegate to the backend whenever the user wants to start work, check on a thread, send a
-thread a follow-up, approve or decline what a paused thread is asking for, or change how much a
-thread asks before acting. Never approve anything or loosen permissions unless the user has just
-told you to. Never read code aloud; summarise it.`
+thread a follow-up, approve or decline what a paused thread is asking for, change how much a
+thread asks before acting, delete threads, open a thread on screen or go back to the list.
+Never approve anything, loosen permissions or delete anything unless the user has just told you to.
+Never read code aloud; summarise it.
+You are told, silently, whenever the user opens a thread on screen or goes back to the list. While a
+thread is open, take what they say as being about that thread unless it clearly is not. Answer a
+question about it from the thread itself. A request for more work on it, or a question its own agent is
+better placed to answer than you are, goes to that same thread as a follow-up: do not start a new thread
+for it. Start a new thread only for a new, unrelated task, or when they ask for a new thread. Whenever
+you pass something on, say in a few words which thread it went to.`
 
 const backendInstructions = `You operate a board of coding-agent threads through tools.
 - start_thread: begin new work. Write the prompt as a complete, self-contained task for a coding agent.
@@ -38,6 +45,18 @@ const backendInstructions = `You operate a board of coding-agent threads through
   that, for example "stop asking", "allow everything" or "bypass permissions". Scope "session"
   covers every thread now working or waiting and the threads started later in this conversation.
   When the user asks to be asked again, set the mode back to "ask".
+- The thread on screen: when the user has a thread open, message_thread, read_thread, stop_thread,
+  set_intelligence and set_permissions act on that thread if thread_id is left out, and list_threads
+  marks it on_screen. A request that continues the open thread's work goes to it with message_thread,
+  never to a new thread. The result of message_thread names the thread it reached: pass that on.
+- open_thread: show one thread in the app's window, filling it, when the user asks to see, open or
+  show it. close_thread goes back to the list of threads. Neither changes the thread itself.
+- delete_threads: remove threads from the board for good, when the user's own words ask for it
+  ("delete that thread", "clear the finished ones"). The conversation in a deleted thread is lost and a
+  thread that is still working is stopped; the files it wrote stay on disk. Pass every thread the user
+  means in one call. When the result asks for confirmation, name those threads to the user, ask, and
+  only after they have answered yes call it again with the same thread_ids. Never delete on your own
+  judgement, and never to tidy up.
 Return short results suited to being spoken. Refer to threads by title, never by id.`
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: Array<string>) => ({
@@ -90,13 +109,29 @@ export const voiceTools = [
     ["mode"]
   ),
   fn("list_threads", "List the threads on the board with status and latest activity.", {}, []),
+  fn("open_thread", "Show a thread in the app's window so the user can read it.", {
+    thread_id: { type: "string", description: "Leave out when there is only one thread." }
+  }, []),
+  fn("close_thread", "Go back from an open thread, or from settings, to the list of threads.", {}, []),
+  fn(
+    "delete_threads",
+    "Delete threads from the board for good, once the user has asked for that. Files they wrote stay on disk.",
+    {
+      thread_ids: {
+        type: "array",
+        items: { type: "string" },
+        description: "Every thread to delete, by thread_id from list_threads."
+      }
+    },
+    ["thread_ids"]
+  ),
   fn("read_thread", "Read the most recent messages of a thread.", {
-    thread_id: { type: "string" }
-  }, ["thread_id"]),
-  fn("message_thread", "Send a follow-up message to an existing thread.", {
-    thread_id: { type: "string" },
+    thread_id: { type: "string", description: "Leave out for the thread the user has open on screen." }
+  }, []),
+  fn("message_thread", "Send a follow-up message to an existing thread, which continues with everything it already knows.", {
+    thread_id: { type: "string", description: "Leave out for the thread the user has open on screen." },
     text: { type: "string" }
-  }, ["thread_id", "text"]),
+  }, ["text"]),
   fn(
     "answer_approval",
     "Approve or decline what a paused thread is asking permission for, once the user has said which.",

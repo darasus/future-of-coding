@@ -60,6 +60,15 @@ const servePreview = async (cwd: string | null, requestUrl: string): Promise<Res
 const isAppUrl = (url: string) =>
   DEV_URL !== undefined ? url.startsWith(DEV_URL) : url.startsWith("file://")
 
+/** The height of the strip above the content: the first grid row of `.shell` in the stylesheet. */
+const TOP_STRIP = 40
+/**
+ * How tall the close, minimise and zoom buttons are. macOS made them larger in
+ * version 26. They are placed so the space above and below them in the strip
+ * is the same.
+ */
+const WINDOW_BUTTON = Number.parseInt(process.getSystemVersion(), 10) >= 26 ? 14 : 12
+
 const createWindow = () => {
   const window = new BrowserWindow({
     width: 1480,
@@ -69,7 +78,7 @@ const createWindow = () => {
     show: false,
     backgroundColor: "#050505",
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 18, y: 18 },
+    trafficLightPosition: { x: 18, y: (TOP_STRIP - WINDOW_BUTTON) / 2 },
     webPreferences: {
       preload: path.join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,

@@ -14,6 +14,8 @@ export const VoiceEvent = Schema.Union([
   Schema.TaggedStruct("Started", {}),
   Schema.TaggedStruct("Heard", { role: Schema.Literals(["user", "assistant"]), delta: Schema.String }),
   Schema.TaggedStruct("UsedTool", { name: Schema.String }),
+  /** The assistant was asked to put a thread on screen, or `null` for the list. */
+  Schema.TaggedStruct("Show", { threadId: Schema.NullOr(Schema.String) }),
   Schema.TaggedStruct("Ended", { reason: Schema.NullOr(Schema.String) })
 ])
 export type VoiceEvent = typeof VoiceEvent.Type
@@ -131,6 +133,8 @@ export class VoiceClient extends Context.Service<VoiceClient, {
   readonly start: Effect.Effect<void, VoiceStartError>
   readonly stop: Effect.Effect<void>
   readonly events: Stream.Stream<VoiceEvent>
+  /** Says which thread the window is showing now, or `null` for the list. */
+  readonly show: (threadId: string | null) => Effect.Effect<void>
   /** Reads the sound of both voices at this instant. Cheap enough to call every frame. */
   readonly spectrum: () => Spectrum
 }>()("foc/renderer/VoiceClient") {
@@ -143,20 +147,45 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         PubSub.publishUnsafe(hub, event)
       }
       let session: Session | null = null
+      /**
+       * The thread the window is showing, or `null` for the list. The app
+       * reports every change, whether or not a conversation is running, so a
+       * conversation that starts later knows it too.
+       */
+      let onScreen: string | null = null
 
-      const teardown = (reason: string | null) => {
+      /**
+       * Ends the conversation. From this call on it is over here: the
+       * microphone is released, the voice stops, and nothing the old session
+       * still sends is listened to, so the next one can start at once.
+       *
+       * `byUser` is for a stop the person asked for. The server is told, and
+       * the connection is held a moment so the message gets there. The
+       * interface is not told: it already knows, and a late announcement could
+       * land on the next conversation instead.
+       */
+      const teardown = (reason: string | null, byUser = false) => {
         if (session === null) return
-        const closing = session
+        const ending = session
         session = null
-        closing.stopWatching()
+        ending.stopWatching()
         heard.clear()
+        awaitingDelete = null
         sessionMode = null
-        for (const track of closing.microphone.getTracks()) track.stop()
-        closing.channel.close()
-        closing.connection.close()
-        closing.audio.srcObject = null
-        void closing.context.close().catch(() => undefined)
-        emit({ _tag: "Ended", reason })
+        for (const track of ending.microphone.getTracks()) track.stop()
+        ending.audio.srcObject = null
+        void ending.context.close().catch(() => undefined)
+        const hangUp = () => {
+          ending.channel.close()
+          ending.connection.close()
+        }
+        if (byUser && ending.channel.readyState === "open") {
+          ending.channel.send(JSON.stringify({ type: "session.close" }))
+          setTimeout(hangUp, 400)
+        } else {
+          hangUp()
+        }
+        if (!byUser) emit({ _tag: "Ended", reason })
       }
 
       // -------------------------------------------------------------------
@@ -165,6 +194,18 @@ export class VoiceClient extends Context.Service<VoiceClient, {
 
       /** The mode the user asked for this conversation, used for threads it starts. */
       let sessionMode: PermissionMode | null = null
+
+      /**
+       * The thread a tool call is about. A real id is used as given. Without
+       * one it is the thread on screen, and failing that a thread there can be
+       * no doubt about: the only one working, or the only one at all.
+       */
+      const pick = (threads: ReadonlyArray<ThreadSummary>, threadId: string, orOnlyThread = false) => {
+        const active = threads.filter((thread) => thread.status === "running" || thread.status === "waiting")
+        return threads.find((thread) => thread.id === threadId) ??
+          threads.find((thread) => thread.id === onScreen) ??
+          (active.length === 1 ? active[0] : orOnlyThread && threads.length === 1 ? threads[0] : undefined)
+      }
 
       const setPermissions = Effect.fnUntraced(function*(mode: PermissionMode, scope: string, threadId: string) {
         const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
@@ -180,9 +221,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
             note: "Threads started later in this conversation use the same mode."
           }
         }
-        // A real id is used as given. Without one, the thread is inferred only
-        // when exactly one is working or waiting.
-        const target = threads.find((thread) => thread.id === threadId) ?? (active.length === 1 ? active[0] : undefined)
+        const target = pick(threads, threadId)
         if (target === undefined) {
           return { error: "Say which thread: call list_threads and pass its thread_id, or use scope session." }
         }
@@ -192,11 +231,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
 
       const setIntelligence = Effect.fnUntraced(function*(level: Intelligence, threadId: string) {
         const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
-        const active = threads.filter((thread) => thread.status === "running" || thread.status === "waiting")
-        // A real id is used as given. Without one the thread is inferred only
-        // when there is no doubt: one thread working, or one thread at all.
-        const target = threads.find((thread) => thread.id === threadId) ??
-          (active.length === 1 ? active[0] : threads.length === 1 ? threads[0] : undefined)
+        const target = pick(threads, threadId, true)
         if (target === undefined) {
           return { error: "Say which thread: call list_threads and pass its thread_id." }
         }
@@ -207,8 +242,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
 
       const stopThread = Effect.fnUntraced(function*(threadId: string) {
         const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
-        const active = threads.filter((thread) => thread.status === "running" || thread.status === "waiting")
-        const target = threads.find((thread) => thread.id === threadId) ?? (active.length === 1 ? active[0] : undefined)
+        const target = pick(threads, threadId)
         if (target === undefined) {
           return { error: "Say which thread: call list_threads and pass its thread_id." }
         }
@@ -283,6 +317,88 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       })
 
       // -------------------------------------------------------------------
+      // Deleting: one quiet thread on request, anything more after a yes
+      // -------------------------------------------------------------------
+
+      /**
+       * A deletion the user has been asked to confirm: which threads, and
+       * whether they have said anything since. The model cannot confirm for
+       * them by calling twice in a row; only speech from the user unlocks it.
+       */
+      let awaitingDelete: { readonly key: string; spoke: boolean } | null = null
+
+      const deleteThreads = Effect.fnUntraced(function*(ids: ReadonlyArray<string>) {
+        const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
+        const wanted = [...new Set(ids)]
+        const targets = threads.filter((thread) => wanted.includes(thread.id))
+        if (targets.length === 0 || targets.length < wanted.length) {
+          return { error: "Some of those are not thread ids. Call list_threads and pass thread_id values from it." }
+        }
+        const busy = targets.filter((thread) => thread.status === "running" || thread.status === "waiting")
+        const key = targets.map((thread) => thread.id).sort().join(",")
+        // One thread that is doing nothing goes on the user's word alone.
+        // Several at once, or one still at work, is read back to them first.
+        if (targets.length > 1 || busy.length > 0) {
+          const confirmed = awaitingDelete !== null && awaitingDelete.key === key && awaitingDelete.spoke
+          if (!confirmed) {
+            awaitingDelete = { key, spoke: false }
+            return {
+              deleted: [],
+              needs_confirmation: "Tell the user which threads these are and ask whether to delete them. " +
+                "Call delete_threads again with the same thread_ids only after they have said yes.",
+              threads: targets.map((thread) => ({ title: thread.title, status: thread.status }))
+            }
+          }
+        }
+        awaitingDelete = null
+        for (const thread of targets) {
+          yield* Effect.ignore(bridge.call("threads.delete", { id: thread.id }))
+          heard.delete(thread.id)
+        }
+        return {
+          deleted: targets.map((thread) => thread.title),
+          ...(busy.length > 0 ? { stopped_first: busy.map((thread) => thread.title) } : {}),
+          note: "The files these threads wrote are still on disk."
+        }
+      })
+
+      // -------------------------------------------------------------------
+      // The screen: which thread the window shows
+      // -------------------------------------------------------------------
+
+      const openThread = Effect.fnUntraced(function*(threadId: string) {
+        const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
+        const target = threads.find((thread) => thread.id === threadId) ?? (threads.length === 1 ? threads[0] : undefined)
+        if (target === undefined) {
+          return { error: "Say which thread: call list_threads and pass its thread_id." }
+        }
+        emit({ _tag: "Show", threadId: target.id })
+        return { showing: target.title }
+      })
+
+      /** Sends a follow-up to the thread named, or to the one on screen, and says which it was. */
+      const sendToThread = Effect.fnUntraced(function*(threadId: string, message: string) {
+        const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
+        const target = threads.find((thread) => thread.id === threadId) ??
+          (threadId === "" ? threads.find((thread) => thread.id === onScreen) : undefined)
+        if (target === undefined) {
+          return {
+            error: threadId === ""
+              ? "No thread is open on screen. Call list_threads and pass the thread_id of the one this is for."
+              : "No thread with that id. Call list_threads and pass a thread_id from it."
+          }
+        }
+        return yield* bridge.call("threads.send", { id: target.id, text: message, source: "voice" }).pipe(
+          Effect.as({
+            sent_to: target.title,
+            on_screen: target.id === onScreen,
+            note: "The thread is working on it. You are told when it finishes."
+          }),
+          Effect.catch((error) => Effect.succeed({ error: error.message }))
+        )
+      })
+
+      // -------------------------------------------------------------------
       // Tools the voice model can call to drive the board
       // -------------------------------------------------------------------
 
@@ -314,7 +430,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           case "list_threads":
             return bridge.call("threads.list", undefined).pipe(
               Effect.map((threads) =>
-                threads.slice(0, 20).map((thread) => ({
+                threads.slice(0, 60).map((thread) => ({
                   thread_id: thread.id,
                   title: thread.title,
                   status: thread.status,
@@ -322,16 +438,17 @@ export class VoiceClient extends Context.Service<VoiceClient, {
                   latest: thread.preview,
                   artifacts: thread.artifacts.length,
                   needs_approval: thread.pendingPermissions > 0,
-                  tasks: taskProgress(thread.todos)
+                  tasks: taskProgress(thread.todos),
+                  ...(thread.id === onScreen ? { on_screen: true } : {})
                 }))
               ),
               Effect.catch((error) => Effect.succeed({ error: error.message }))
             )
           case "read_thread":
-            return bridge.call("threads.get", { id: text("thread_id") }).pipe(
+            return bridge.call("threads.get", { id: text("thread_id") || (onScreen ?? "") }).pipe(
               Effect.map((thread) =>
                 thread === null
-                  ? { error: "No thread with that id." }
+                  ? { error: "No thread with that id, and none is open on screen. Call list_threads." }
                   : {
                     title: thread.title,
                     status: thread.status,
@@ -346,12 +463,22 @@ export class VoiceClient extends Context.Service<VoiceClient, {
               Effect.catch((error) => Effect.succeed({ error: error.message }))
             )
           case "message_thread":
-            return bridge.call("threads.send", { id: text("thread_id"), text: text("text"), source: "voice" }).pipe(
-              Effect.as({ sent: true }),
-              Effect.catch((error) => Effect.succeed({ error: error.message }))
-            )
+            return sendToThread(text("thread_id"), text("text"))
           case "stop_thread":
             return stopThread(text("thread_id"))
+          case "open_thread":
+            return openThread(text("thread_id"))
+          case "close_thread":
+            return Effect.sync(() => {
+              emit({ _tag: "Show", threadId: null })
+              return { showing: "the list of threads" }
+            })
+          case "delete_threads": {
+            const ids = Array.isArray(args.thread_ids) ? args.thread_ids.filter(Predicate.isString) : []
+            return ids.length === 0
+              ? Effect.succeed({ error: "Pass thread_ids: the thread_id of each thread to delete." })
+              : deleteThreads(ids)
+          }
           case "set_permissions": {
             const mode = spokenModes[text("mode")]
             return mode === undefined
@@ -460,6 +587,38 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         }
       }
 
+      // -------------------------------------------------------------------
+      // The screen: telling the conversation what the user is looking at
+      // -------------------------------------------------------------------
+
+      let screenNotes = 0
+      /** Tells the conversation, without it speaking, which thread is open. */
+      const tellScreen = async (channel: RTCDataChannel) => {
+        const showing = onScreen
+        const reply = showing === null ? null : await window.foc.invoke("threads.list", undefined)
+        const threads = reply !== null && reply.ok ? reply.value as ReadonlyArray<ThreadSummary> : []
+        const thread = threads.find((candidate) => candidate.id === showing)
+        // Stale by the time the list came back: a newer note is on its way.
+        if (showing !== onScreen || channel.readyState !== "open") return
+        channel.send(JSON.stringify({
+          type: "session.instructions.append",
+          event_id: `screen_${++screenNotes}`,
+          delegation_id: null,
+          content: thread === undefined
+            ? "Screen: the user is now looking at the list of threads. No thread is open. Do not mention this."
+            : `Screen: the user now has the thread "${clip(thread.title, 90)}" open (thread_id ${thread.id}, ` +
+              `${thread.status}). Until told otherwise, what they say is about this thread unless it clearly is ` +
+              "not: follow-ups for it go to this thread, not to a new one. Do not mention this."
+        }))
+      }
+
+      const show = (threadId: string | null) =>
+        Effect.sync(() => {
+          if (threadId === onScreen) return
+          onScreen = threadId
+          if (session !== null) void tellScreen(session.channel)
+        })
+
       // Results are sent back together, then the backend is resumed once.
       let calls: Array<Promise<{ readonly callId: string; readonly output: string }>> = []
       let flushTimer: ReturnType<typeof setTimeout> | null = null
@@ -478,6 +637,8 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       }
 
       const onServerEvent = (channel: RTCDataChannel, data: unknown) => {
+        // A conversation that has been closed has nothing more to say.
+        if (session?.channel !== channel) return
         if (!Predicate.isString(data)) return
         let event: unknown
         try {
@@ -495,10 +656,14 @@ export class VoiceClient extends Context.Service<VoiceClient, {
               content: boardBriefing
             }))
             if (session !== null) session.stopWatching = watchBoard(channel)
+            if (onScreen !== null) void tellScreen(channel)
             emit({ _tag: "Started" })
             break
           case "session.input_transcript.delta":
           case "session.output_transcript.delta":
+            // Anything the user says after being asked counts as their answer
+            // having been given; what they said is for the model to judge.
+            if (event.type === "session.input_transcript.delta" && awaitingDelete !== null) awaitingDelete.spoke = true
             if ("delta" in event && Predicate.isString(event.delta)) {
               emit({
                 _tag: "Heard",
@@ -543,48 +708,84 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         }
       }
 
+      /**
+       * Every press of the control, start or stop, is counted. Starting takes
+       * several steps that wait on the microphone and the network, and the next
+       * press can land between any two of them. A start remembers its number
+       * and gives up quietly as soon as the count has moved on, so the latest
+       * press always wins, however quickly they come.
+       */
+      let presses = 0
+
+      const connect = async (stale: () => boolean) => {
+        if (session !== null) return
+        // Ask for the key before the microphone, so nobody grants access for nothing.
+        const settings = await window.foc.invoke("settings.get", undefined)
+        if (stale()) return
+        if (settings.ok && !(settings.value as { readonly hasOpenAiKey: boolean }).hasOpenAiKey) {
+          throw new Error("Add an OpenAI API key in Settings to use live voice.")
+        }
+        const microphone = await navigator.mediaDevices.getUserMedia({ audio: true })
+        if (stale()) {
+          // Stopped while the microphone was being opened: let go of it again.
+          for (const track of microphone.getTracks()) track.stop()
+          return
+        }
+        const connection = new RTCPeerConnection()
+        const audio = new Audio()
+        audio.autoplay = true
+        const context = new AudioContext()
+        const input = meter(context, microphone)
+        for (const track of microphone.getAudioTracks()) connection.addTrack(track, microphone)
+        // The event channel has to exist before the offer is made.
+        const channel = connection.createDataChannel("oai-events")
+        const mine: Session = { connection, channel, microphone, audio, context, input, output: null, stopWatching: () => undefined }
+        session = mine
+        connection.addEventListener("track", (event) => {
+          if (session !== mine) return
+          const remote = new MediaStream([event.track])
+          audio.srcObject = remote
+          void audio.play().catch(() => undefined)
+          mine.output = meter(context, remote)
+        })
+        channel.addEventListener("message", ({ data }) => onServerEvent(channel, data))
+        connection.addEventListener("connectionstatechange", () => {
+          if (session !== mine) return
+          if (connection.connectionState === "failed" || connection.connectionState === "disconnected") {
+            teardown("The voice connection dropped.")
+          }
+        })
+        try {
+          await connection.setLocalDescription(await connection.createOffer())
+          await iceGathered(connection)
+          // Stopped already: do not open a session on the server for nobody.
+          if (session !== mine) return
+          const reply = await window.foc.invoke("voice.connect", { sdp: connection.localDescription?.sdp ?? "" })
+          if (session !== mine) return
+          if (!reply.ok) throw new Error(reply.error)
+          const answer = reply.value as { readonly sdp: string }
+          await connection.setRemoteDescription({ type: "answer", sdp: answer.sdp })
+        } catch (error) {
+          // Stopped while it was still connecting: that was asked for, and
+          // everything is already closed. It is not a failure to report.
+          if (session !== mine) return
+          session = null
+          for (const track of microphone.getTracks()) track.stop()
+          connection.close()
+          void context.close().catch(() => undefined)
+          throw error
+        }
+      }
+
       const start = Effect.tryPromise({
         try: async () => {
-          if (session !== null) return
-          // Ask for the key before the microphone, so nobody grants access for nothing.
-          const settings = await window.foc.invoke("settings.get", undefined)
-          if (settings.ok && !(settings.value as { readonly hasOpenAiKey: boolean }).hasOpenAiKey) {
-            throw new Error("Add an OpenAI API key in Settings to use live voice.")
-          }
-          const microphone = await navigator.mediaDevices.getUserMedia({ audio: true })
-          const connection = new RTCPeerConnection()
-          const audio = new Audio()
-          audio.autoplay = true
-          const context = new AudioContext()
-          const input = meter(context, microphone)
-          connection.addEventListener("track", (event) => {
-            const remote = new MediaStream([event.track])
-            audio.srcObject = remote
-            void audio.play().catch(() => undefined)
-            if (session !== null) session.output = meter(context, remote)
-          })
-          for (const track of microphone.getAudioTracks()) connection.addTrack(track, microphone)
-          // The event channel has to exist before the offer is made.
-          const channel = connection.createDataChannel("oai-events")
-          session = { connection, channel, microphone, audio, context, input, output: null, stopWatching: () => undefined }
-          channel.addEventListener("message", ({ data }) => onServerEvent(channel, data))
-          connection.addEventListener("connectionstatechange", () => {
-            if (connection.connectionState === "failed" || connection.connectionState === "disconnected") {
-              teardown("The voice connection dropped.")
-            }
-          })
+          const press = ++presses
+          const stale = () => press !== presses
           try {
-            await connection.setLocalDescription(await connection.createOffer())
-            await iceGathered(connection)
-            const reply = await window.foc.invoke("voice.connect", { sdp: connection.localDescription?.sdp ?? "" })
-            if (!reply.ok) throw new Error(reply.error)
-            const answer = reply.value as { readonly sdp: string }
-            await connection.setRemoteDescription({ type: "answer", sdp: answer.sdp })
+            await connect(stale)
           } catch (error) {
-            session = null
-            for (const track of microphone.getTracks()) track.stop()
-            connection.close()
-            void context.close().catch(() => undefined)
+            // Whatever went wrong belongs to a conversation nobody wants any more.
+            if (stale()) return
             throw error
           }
         },
@@ -598,15 +799,10 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           })
       })
 
-      const stop = Effect.promise(async () => {
-        const current = session
-        if (current === null) return
-        if (current.channel.readyState === "open") {
-          current.channel.send(JSON.stringify({ type: "session.close" }))
-          // Give the server a moment to confirm, then close regardless.
-          await new Promise((resolve) => setTimeout(resolve, 400))
-        }
-        teardown(null)
+      const stop = Effect.sync(() => {
+        // Counted first, so a start that is still on its way gives up.
+        presses++
+        teardown(null, true)
       })
 
       yield* Effect.addFinalizer(() => Effect.sync(() => teardown(null)))
@@ -622,7 +818,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         }
       }
 
-      return VoiceClient.of({ start, stop, events: Stream.fromPubSub(hub), spectrum })
+      return VoiceClient.of({ start, stop, events: Stream.fromPubSub(hub), show, spectrum })
     })
   ).pipe(Layer.provide(Bridge.layer))
 }

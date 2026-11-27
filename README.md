@@ -3,8 +3,9 @@
 A local desktop workbench for running Claude coding agents as a board of threads. Each thread is
 one agent working in a folder on your machine. You direct all of it by voice: there are no text boxes
 and no buttons for starting, steering, approving or stopping a thread. The screen is for reading:
-open a thread to see its task list, what it is doing now and what it answered, and to preview the
-files it wrote. The individual tool calls are counted and folded away.
+click a thread and it opens to fill the window, with its task list, what it is doing now, what it
+answered and the files it wrote; Escape or the close button takes you back to the list. The
+individual tool calls are counted and folded away.
 
 Everything runs on this machine in Electron. Threads, transcripts and settings are kept in one SQLite
 database, `future-of-coding.db`, in the app's data folder (`~/Library/Application Support/future-of-coding`
@@ -47,8 +48,10 @@ Voice uses OpenAI's Live API (`gpt-live-1.1`) over WebRTC. Add an OpenAI API key
 encrypted with the OS keychain and stays in the main process, which starts the session on the page's
 behalf. In development the key can also come from `OPENAI_API_KEY` in `.env.local`.
 
-Press Space, or click the display at the foot of the list, to start talking; press it again to stop.
-The display shows the pitch and loudness of both voices: yours in white, the assistant's in blue.
+Press Space, or click the line of lamps that runs across the window, to start talking; press it again
+to stop. The lamps show the pitch and loudness of both voices: yours in white, the assistant's in
+blue. The line is the floor of the window: the threads stand on it and stack upward, and an open
+thread fills the window above it.
 
 What you can say:
 
@@ -61,6 +64,8 @@ What you can say:
 | "Stop asking, bypass permissions" | That thread, or every thread in the conversation, runs without asking |
 | "Ask me again" | Turns permission prompts back on |
 | "Stop that thread" | Interrupts a thread that is working |
+| "Open the thread about…" / "Go back to the list" | Shows that thread in the window, or returns to the list |
+| "Delete that thread" / "Delete the finished ones" | Removes threads for good. One idle thread goes at once; several, or one still working, are read back to you first and go only after you say yes. Files they wrote stay on disk |
 
 The assistant also speaks up on its own when a thread needs approval, finishes or fails. Decisions
 made by voice leave a line in the thread's transcript, and a thread running without permission

@@ -35,6 +35,26 @@
   --blur: 8px;
   --press: 160ms;
   --hover: 150ms;
+
+  /* The lamp grid the whole window is laid on. The voice display lights these
+     same lamps, so the numbers here match LAMP and PITCH in VoiceMatrix.ts. */
+  --lamp: 4px;
+  --pitch: 6px;
+  /* The voice display: thirteen lamps tall, and where its bottom edge sits
+     above the window's. Both are whole numbers of lamps, which is what keeps
+     the display on the backdrop's grid. */
+  --band: 76px;
+  --band-foot: 36px;
+
+  /* One column, on the middle of the window, for everything that is read:
+     the threads, an open thread's conversation, and the line of speech. */
+  --column: 760px;
+  /* The window's edge margin. */
+  --pad: 12px;
+  /* Where reading starts inside an open thread, which fills the window: on
+     the same column. A thread is read exactly where its row was, and above
+     the line of speech. */
+  --gutter: max(26px, calc((100vw - var(--column)) / 2 - var(--pad)));
   --enter: 250ms;
   --rise: 8px;
   --pressed: scale(0.97);
@@ -67,11 +87,57 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
+  z-index: -2;
   background:
     radial-gradient(70% 55% at 22% 0%, rgba(255, 255, 255, 0.05), transparent 72%),
     radial-gradient(60% 50% at 88% 100%, rgba(255, 255, 255, 0.03), transparent 72%),
     linear-gradient(180deg, #0c0c0d 0%, #050505 100%);
   pointer-events: none;
+}
+
+/* The backdrop: unlit lamps across the window, densest along the voice
+   display at the foot and thinning out as they rise. Nothing sits in empty
+   space; it sits on this. The grid is counted from the bottom-left corner. */
+.shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect y='2' width='4' height='4' fill='%23eceef4'/%3E%3C/svg%3E")
+    left bottom / var(--pitch) var(--pitch);
+  opacity: 0.055;
+  /* Clear under the line of speech, full along the display, then a long fade above it. */
+  -webkit-mask-image:
+    linear-gradient(
+      to top,
+      transparent calc(var(--band-foot) - 1px),
+      #000 calc(var(--band-foot) - 1px),
+      #000 calc(var(--band-foot) + var(--band)),
+      rgba(0, 0, 0, 0.5) calc(var(--band-foot) + var(--band) + 16vh),
+      rgba(0, 0, 0, 0.18) calc(var(--band-foot) + var(--band) + 34vh),
+      transparent calc(var(--band-foot) + var(--band) + 56vh)
+    ),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.25), #000 24%, #000 76%, rgba(0, 0, 0, 0.25));
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(
+      to top,
+      transparent calc(var(--band-foot) - 1px),
+      #000 calc(var(--band-foot) - 1px),
+      #000 calc(var(--band-foot) + var(--band)),
+      rgba(0, 0, 0, 0.5) calc(var(--band-foot) + var(--band) + 16vh),
+      rgba(0, 0, 0, 0.18) calc(var(--band-foot) + var(--band) + 34vh),
+      transparent calc(var(--band-foot) + var(--band) + 56vh)
+    ),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.25), #000 24%, #000 76%, rgba(0, 0, 0, 0.25));
+  mask-composite: intersect;
+  pointer-events: none;
+  transition: opacity 700ms var(--ease-out);
+}
+
+/* While you are talking, the whole grid comes up a little. */
+.shell:has(.voice.is-live)::before {
+  opacity: 0.085;
 }
 
 h1,
@@ -152,21 +218,18 @@ input::placeholder {
 }
 
 /* ------------------------------------------------------------------ */
-/* Shell: a list of threads, the voice dock, and one open thread       */
+/* Shell: threads and one open thread, standing on the voice display   */
 /* ------------------------------------------------------------------ */
 
 .shell {
   position: relative;
   height: 100%;
   display: grid;
-  grid-template-rows: 40px minmax(0, 1fr);
+  /* The strip above, the list or an open thread, and the voice display,
+     which is always the floor of the window. */
+  grid-template-rows: 40px minmax(0, 1fr) auto;
   grid-template-columns: minmax(0, 1fr);
-  column-gap: 12px;
-  padding: 0 12px 12px;
-}
-
-.shell.has-detail {
-  grid-template-columns: 360px minmax(0, 1fr);
+  padding: 0 var(--pad);
 }
 
 /* The strip the window is dragged by. It holds the one piece of chrome. */
@@ -182,40 +245,69 @@ input::placeholder {
   -webkit-app-region: no-drag;
 }
 
+/* The threads and the line of speech share the middle column. */
 .board {
+  width: 100%;
+  max-width: var(--column);
+  margin-inline: auto;
+}
+
+.voice-line,
+.voice-error {
+  max-width: var(--column);
+  margin-inline: max(var(--pad), calc((100vw - var(--column)) / 2));
+}
+
+/* Threads stand on the voice display and stack upward from it. */
+.board {
+  grid-row: 2;
+  grid-column: 1;
   view-transition-name: board;
   min-height: 0;
   min-width: 0;
-  width: 100%;
-  max-width: 620px;
-  margin: 0 auto;
+  padding-bottom: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  justify-content: flex-end;
 }
 
-.shell.has-detail .board {
-  max-width: none;
+/* Before the first thread: where it will appear, and how to get one. */
+.board-hint {
+  padding: 11px 14px;
+  display: grid;
+  gap: 1px;
+  font-size: 12.5px;
+  color: var(--text-3);
 }
 
-/* With nothing on the board there is only the orb. */
-.board.is-empty {
-  justify-content: center;
+.board-hint-title {
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--text-2);
 }
 
+/* An open thread, or settings, has the window to itself above the voice
+   display. The list is not shown beside it. */
 .detail {
+  grid-row: 2;
+  grid-column: 1;
   min-height: 0;
   min-width: 0;
+  padding-bottom: 12px;
   display: flex;
 }
 
 .panel {
+  container: panel / inline-size;
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
+  /* The usual fill, on a solid base: a panel is for reading, so the lamps
+     behind it do not show through. */
+  background: linear-gradient(var(--surface), var(--surface)), #0a0a0b;
   border-radius: var(--radius);
   overflow: hidden;
 }
@@ -225,7 +317,7 @@ input::placeholder {
 /* ------------------------------------------------------------------ */
 
 .rows {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   list-style: none;
@@ -249,10 +341,6 @@ input::placeholder {
 }
 
 .row:hover {
-  background: var(--surface);
-}
-
-.row.selected {
   background: var(--surface);
 }
 
@@ -289,11 +377,10 @@ input::placeholder {
   color: var(--text-3);
 }
 
-/* A thread that no longer asks before acting says so wherever it appears. */
+/* A thread that no longer asks before acting says so wherever it appears:
+   in ordinary type, set apart only by its colour. */
 .bypass {
-  font: 600 9.5px var(--mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12px;
   color: var(--red);
 }
 
@@ -437,11 +524,13 @@ input::placeholder {
 /* An open thread                                                      */
 /* ------------------------------------------------------------------ */
 
+/* The title starts where the reading column does; the controls keep to the
+   panel's corner. */
 .panel-head {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 20px 14px 14px 26px;
+  padding: 20px 14px 14px var(--gutter);
 }
 
 .panel-title {
@@ -461,11 +550,11 @@ input::placeholder {
 }
 
 .panel-sub {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
   font-size: 12px;
   color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel-actions {
@@ -487,10 +576,26 @@ input::placeholder {
 .tasks {
   flex: none;
   max-height: 40%;
+  max-width: calc(var(--gutter) + var(--column) + 26px);
   overflow-y: auto;
-  padding: 4px 26px 16px;
+  padding: 4px 26px 16px var(--gutter);
   display: grid;
   gap: 10px;
+}
+
+/* In a wide panel the tasks move into the margin beside the conversation,
+   where they stay in view while you read. */
+@container panel (min-width: 1400px) {
+  .tasks {
+    position: absolute;
+    top: 78px;
+    left: calc(var(--gutter) + var(--column) + 44px);
+    width: min(300px, calc(100% - var(--gutter) - var(--column) - 70px));
+    max-width: none;
+    max-height: calc(100% - 104px);
+    padding: 0;
+    align-content: start;
+  }
 }
 
 .tasks-head {
@@ -599,8 +704,8 @@ input::placeholder {
 
 /* The title, the tasks and the conversation share one left edge. */
 .transcript-inner {
-  max-width: 760px;
-  padding: 10px 26px 30px;
+  max-width: calc(var(--gutter) + var(--column) + 26px);
+  padding: 10px 26px 30px var(--gutter);
   display: flex;
   flex-direction: column;
   gap: 30px;
@@ -1012,7 +1117,7 @@ input::placeholder {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 14px 12px 20px;
+  padding: 0 14px 12px calc(var(--gutter) - 11px);
 }
 
 .file-names {
@@ -1085,20 +1190,24 @@ input::placeholder {
 /* Voice: the one way to direct the board                              */
 /* ------------------------------------------------------------------ */
 
-/* No box of its own: the lamps and the line sit straight on the window. */
+/* The floor of the window, edge to edge: a strip of the backdrop that lights
+   up, and under it one line for the state and what is being said. The three
+   heights below add up to --band-foot. */
 .voice {
-  flex: none;
-  padding: 4px 14px 8px;
+  grid-row: 3;
+  grid-column: 1 / -1;
+  margin-inline: -12px;
+  padding-bottom: 8px;
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
 }
 
 /* The display is the button: press it to talk, press it to stop. */
 .voice-screen {
   display: block;
   width: 100%;
-  border-radius: var(--radius);
-  transition: transform var(--press) var(--ease-out), opacity var(--hover) ease;
+  transition: opacity var(--hover) ease;
 }
 
 .voice.is-off .voice-screen {
@@ -1113,13 +1222,17 @@ input::placeholder {
 .voice-matrix {
   display: block;
   width: 100%;
-  height: 70px;
+  height: var(--band);
 }
 
+/* Starts where the thread rows start, or, with a thread open, where its
+   conversation does. */
 .voice-line {
   min-width: 0;
+  height: 20px;
+  padding-inline: 14px;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 14px;
 }
 
@@ -1132,6 +1245,13 @@ input::placeholder {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-2);
+}
+
+/* Under an open thread the line starts at the conversation's left edge. */
+.shell.has-detail .voice-line,
+.shell.has-detail .voice-error {
+  margin-inline: calc(var(--pad) + var(--gutter));
+  padding-inline: 0;
 }
 
 /* Red, as on anything that is recording. */
@@ -1171,9 +1291,13 @@ input::placeholder {
   color: var(--text);
 }
 
+/* One line, the same height as the line it replaces, so the display does not
+   move. The whole message is in its tooltip. */
 .voice-error {
+  height: 20px;
+  padding-inline: 14px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   color: var(--red);
   font-size: 12.5px;
@@ -1181,25 +1305,15 @@ input::placeholder {
 
 .voice-error p {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Nothing on the board yet: the display is the whole interface. */
-.board.is-empty .voice {
-  gap: 18px;
-  padding: 0;
-  background: none;
-}
-
-.board.is-empty .voice-matrix {
-  height: 142px;
-}
-
-.board.is-empty .voice-line {
-  justify-content: center;
-}
-
-.board.is-empty .ticker {
-  flex: 0 1 auto;
+.voice-error .icon-btn {
+  width: 20px;
+  height: 20px;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1210,11 +1324,11 @@ input::placeholder {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 26px 26px;
+  max-width: calc(var(--gutter) + var(--column) + 26px);
+  padding: 4px 26px 26px var(--gutter);
   display: grid;
   align-content: start;
   gap: 16px;
-  max-width: 640px;
 }
 
 .setting-group {
@@ -1342,10 +1456,6 @@ input::placeholder {
   transform: var(--pressed);
 }
 
-.voice-screen:active {
-  transform: var(--row-pressed);
-}
-
 .row:active {
   transform: var(--row-pressed);
 }
@@ -1364,23 +1474,47 @@ input::placeholder {
   }
 }
 
+/* The floor is simply there, a moment after the window. */
+.voice {
+  animation: fade-in 900ms var(--ease-out) backwards;
+}
+
 /* ---- Opening a thread ------------------------------------------------ */
 
-/* The row you pressed and the panel it opens are one object. They share a
-   name, so the browser grows the row's box into the panel's and shrinks it
-   back on close, while the list slides aside on the same clock. */
+/* The row you pressed and the thread it opens are one object. They share a
+   name, so the browser grows the row's box until it fills the window and
+   shrinks it back on close. The other rows step out of the way first and
+   come back last. */
 .thread-panel {
   view-transition-name: thread-morph;
 }
 
+/* Settings is a narrower column, on the same middle. */
 .settings {
+  --column: 640px;
+  --gutter: max(26px, calc((100vw - var(--column)) / 2 - var(--pad)));
   view-transition-name: settings-panel;
 }
 
+/* The voice display stays where it is while everything above it changes.
+   Only its live picture is shown, so the lamps keep moving meanwhile. */
+.voice {
+  view-transition-name: voice;
+}
+
 ::view-transition-group(thread-morph),
-::view-transition-group(board) {
+::view-transition-group(board),
+::view-transition-group(voice) {
   animation-duration: var(--morph);
   animation-timing-function: var(--ease-drawer);
+}
+
+::view-transition-old(voice) {
+  display: none;
+}
+
+::view-transition-new(voice) {
+  animation: none;
 }
 
 ::view-transition-group(thread-morph) {
@@ -1401,6 +1535,20 @@ input::placeholder {
   object-position: left top;
 }
 
+/* The list is anchored to its foot, where the threads are. */
+::view-transition-old(board),
+::view-transition-new(board) {
+  object-position: left bottom;
+}
+
+::view-transition-old(board):only-child {
+  animation: fade-out 180ms var(--ease-out) both;
+}
+
+::view-transition-new(board):only-child {
+  animation: fade-in 300ms var(--ease-out) 180ms both;
+}
+
 /* Opening: the row is gone almost at once, the panel fills in behind it. */
 ::view-transition-old(thread-morph) {
   animation: fade-out 160ms var(--ease-out) both;
@@ -1410,13 +1558,55 @@ input::placeholder {
   animation: fade-in 320ms var(--ease-out) 60ms both;
 }
 
+/* The panel's title is the row's title. As the box travels from the row to
+   the panel's place, the picture inside slides the other way, so the words
+   stay under the eye instead of jumping to their new margin. 36px is how far
+   in a row's text starts. */
+:root:active-view-transition-type(open)::view-transition-new(thread-morph) {
+  animation: fade-in 320ms var(--ease-out) 60ms both, hold-column var(--morph) var(--ease-drawer) both;
+}
+
+/* Opened without a row to grow from, the panel only fades in. */
+:root:active-view-transition-type(open)::view-transition-new(thread-morph):only-child {
+  animation: fade-in 320ms var(--ease-out) 60ms both;
+}
+
+@keyframes hold-column {
+  from {
+    object-position: calc(36px - var(--gutter)) top;
+  }
+}
+
+/* The row's own picture keeps to the same spot while it fades. */
+:root:active-view-transition-type(open)::view-transition-old(thread-morph) {
+  animation: fade-out 160ms var(--ease-out) both, hold-row var(--morph) var(--ease-drawer) both;
+}
+
+@keyframes hold-row {
+  to {
+    object-position: calc(var(--gutter) - 36px) top;
+  }
+}
+
+@keyframes release-row {
+  from {
+    object-position: calc(var(--gutter) - 36px) top;
+  }
+}
+
+@keyframes release-column {
+  to {
+    object-position: calc(36px - var(--gutter)) top;
+  }
+}
+
 /* Closing: the panel lingers a moment as it shrinks, then the row is there. */
 :root:active-view-transition-type(close)::view-transition-old(thread-morph) {
-  animation: fade-out 240ms var(--ease-out) both;
+  animation: fade-out 240ms var(--ease-out) both, release-column var(--morph) var(--ease-drawer) both;
 }
 
 :root:active-view-transition-type(close)::view-transition-new(thread-morph) {
-  animation: fade-in 260ms var(--ease-out) 160ms both;
+  animation: fade-in 260ms var(--ease-out) 160ms both, release-row var(--morph) var(--ease-drawer) both;
 }
 
 /* One panel giving way to another, or a thread to its files: the old one

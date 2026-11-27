@@ -16,8 +16,15 @@ export const VoiceOrbMessage = UiSchema.TaggedEnum({
   StartedSession: {},
   Heard: { role: Role, delta: Schema.String },
   UsedTool: { name: Schema.String },
+  AskedToShow: { threadId: Schema.NullOr(Schema.String) },
   EndedSession: { reason: Schema.NullOr(Schema.String) },
   ClickedDismiss: {}
+})
+
+/** What the conversation asks of the rest of the window. */
+export const VoiceOrbEvents = UiSchema.TaggedEnum({
+  /** Put this thread on screen, or the list when there is none. */
+  RequestedShow: { threadId: Schema.NullOr(Schema.String) }
 })
 
 export class StartVoice extends Command.Service<StartVoice>()(
@@ -55,6 +62,8 @@ const toMessage = (event: VoiceEvent) => {
       return VoiceOrbMessage.Heard({ role: event.role, delta: event.delta })
     case "UsedTool":
       return VoiceOrbMessage.UsedTool({ name: event.name })
+    case "Show":
+      return VoiceOrbMessage.AskedToShow({ threadId: event.threadId })
     case "Ended":
       return VoiceOrbMessage.EndedSession({ reason: event.reason })
   }
@@ -68,8 +77,28 @@ const toolLabels: Record<string, string> = {
   stop_thread: "Stopping a thread",
   answer_approval: "Answering a request",
   set_permissions: "Changing permissions",
-  set_intelligence: "Choosing a model"
+  set_intelligence: "Choosing a model",
+  open_thread: "Opening a thread",
+  close_thread: "Back to the list",
+  delete_threads: "Deleting threads"
 }
+
+/**
+ * Keeps the conversation told which thread the window is showing, for as long
+ * as the voice display is on screen, which is always.
+ */
+const TrackScreen = Mount.makeStream(
+  "TrackScreen",
+  { args: { threadId: Schema.NullOr(Schema.String) } },
+  (_node: HTMLElement, args, changes) =>
+    Stream.unwrap(
+      Effect.gen(function*() {
+        const voice = yield* VoiceClient
+        yield* voice.show(args.threadId)
+        return changes.pipe(Stream.tap((next) => voice.show(next.threadId)), Stream.drain)
+      })
+    )
+)
 
 /** How much of the conversation is kept for the running line. */
 const MAX_LINES = 6
@@ -77,6 +106,8 @@ const SHOWN_WORDS = 48
 
 const VoiceOrbDef = Html.component({
   name: "VoiceOrb",
+  /** The thread open in the window, or `null` when the list or settings is showing. */
+  props: Schema.Struct({ openThreadId: Schema.NullOr(Schema.String) }),
   model: Schema.Struct({
     state: Schema.Literals(["off", "connecting", "live"]),
     // Each stretch of speech keeps its number, so its words keep their place
@@ -86,7 +117,8 @@ const VoiceOrbDef = Html.component({
     activity: Schema.String,
     error: Schema.NullOr(Schema.String)
   }),
-  message: VoiceOrbMessage
+  message: VoiceOrbMessage,
+  events: VoiceOrbEvents
 })
 
 /** Starts a conversation, or ends the one in progress. A click and Space both do this. */
@@ -119,6 +151,7 @@ export const VoiceOrbNoDeps = VoiceOrbDef.make({
       })
     },
     UsedTool: ($, { name }) => $.evolve({ activity: toolLabels[name] ?? "Working" }),
+    AskedToShow: ($, { threadId }) => $.emit(VoiceOrbEvents.RequestedShow({ threadId })),
     EndedSession: ($, { reason }) => $.evolve({ state: "off" as const, error: reason, activity: "" }),
     ClickedDismiss: ($) => $.evolve({ error: null })
   },
@@ -159,7 +192,9 @@ export const VoiceOrbNoDeps = VoiceOrbDef.make({
       : model.activity !== ""
       ? model.activity
       : "Listening"
-    return h.div.class("voice", `is-${model.state}`).children(
+    return h.div.class("voice", `is-${model.state}`)
+      .onMount(TrackScreen({ threadId: h.props.openThreadId }).pipe(Mount.map((never) => never)))
+      .children(
       h.button.class("voice-screen").attrs({
         type: "button",
         "aria-pressed": String(model.state !== "off"),
@@ -171,7 +206,7 @@ export const VoiceOrbNoDeps = VoiceOrbDef.make({
           .onMount(DrawVoice({ state: model.state }).pipe(Mount.map((never) => never)))
       ),
       model.error !== null
-        ? h.div.class("voice-error").attr("role", "alert").children(
+        ? h.div.class("voice-error").attrs({ role: "alert", title: model.error }).children(
           h.p(model.error),
           h.button.class("icon-btn").attrs({ type: "button", "aria-label": "Dismiss" })
             .on("click", VoiceOrbMessage.ClickedDismiss()).children(Icon(h, "close"))

@@ -355,9 +355,10 @@ const threadView = ThreadPanelDef.fragment((h, model: ThreadPanelModel, thread: 
         h.p.class("panel-sub").children(
           folderName(thread.cwd),
           thread.model !== null && ` · ${modelLabel(thread.model)}`,
+          thread.permissionMode === "bypassPermissions" && " · ",
           thread.permissionMode === "bypassPermissions" &&
             h.span.class("bypass").attr("title", "Claude runs commands and edits files here without asking")
-              .children("bypass")
+              .children("Bypass")
         )
       ),
       h.div.class("panel-actions").children(
