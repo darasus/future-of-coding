@@ -10,6 +10,7 @@ import {
   type InputSource,
   type Item,
   type PermissionMode,
+  type Question,
   type Thread,
   type ThreadSummary,
   type Todo
@@ -53,6 +54,8 @@ interface Live {
   /** Streaming assistant items not yet confirmed by a complete message. */
   readonly openText: Array<string>
   readonly pending: Map<string, (decision: Decision) => void>
+  /** Questions the agent is waiting on, by item id. `null` means nobody answered. */
+  readonly questions: Map<string, (answers: ReadonlyArray<string> | null) => void>
   /** Files a running tool call will write, by tool-use id. */
   readonly writes: Map<string, { readonly path: string; readonly kind: Artifact["kind"] }>
   /** Tasks a running TaskCreate call will add, by tool-use id. */
@@ -131,6 +134,25 @@ const resultText = (content: unknown): string => {
  */
 const TASK_TOOLS = new Set(["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch"])
 
+/** The tool an agent asks the user a question with. It is shown as a question, not as a tool call. */
+const QUESTION_TOOL = "AskUserQuestion"
+
+/** The questions in an AskUserQuestion call, keeping only what is well formed. */
+const questionsOf = (input: Record<string, unknown>): Array<Question> =>
+  (Array.isArray(input.questions) ? input.questions : []).filter(Predicate.isObject).flatMap(
+    (raw: Record<string, unknown>) => {
+      const question = stringField(raw, "question")
+      if (question === null || question === "") return []
+      const options = (Array.isArray(raw.options) ? raw.options : []).filter(Predicate.isObject).flatMap(
+        (option: Record<string, unknown>) => {
+          const label = stringField(option, "label")
+          return label === null ? [] : [{ label, description: stringField(option, "description") ?? "" }]
+        }
+      )
+      return [{ question, header: stringField(raw, "header") ?? "", options, multiSelect: raw.multiSelect === true }]
+    }
+  )
+
 const todoStatus = (value: unknown): Todo["status"] =>
   value === "in_progress" || value === "completed" ? value : "pending"
 
@@ -176,6 +198,7 @@ const summaryOf = (thread: MutableThread): ThreadSummary => {
   let preview = ""
   let activity = ""
   let pendingPermissions = 0
+  let pendingQuestions = 0
   let messages = 0
   for (const item of thread.items) {
     if (item._tag === "Assistant" || item._tag === "User") {
@@ -183,9 +206,10 @@ const summaryOf = (thread: MutableThread): ThreadSummary => {
       if (item.text.trim() !== "") preview = item.text
     }
     if (item._tag === "Permission" && item.status === "pending") pendingPermissions++
+    if (item._tag === "Question" && item.status === "pending") pendingQuestions++
   }
   if (thread.status === "waiting") {
-    activity = "Needs your approval"
+    activity = pendingQuestions > 0 ? "Has a question for you" : "Needs your approval"
   } else if (thread.status === "running") {
     const last = thread.items.at(-1)
     const current = thread.todos.find((todo) => todo.status === "in_progress")
@@ -201,7 +225,7 @@ const summaryOf = (thread: MutableThread): ThreadSummary => {
   const { items: _items, ...rest } = thread
   // The board shows plain text, so the common Markdown marks are dropped.
   const plain = preview.replace(/[`*_#>]+/g, "").replace(/\s+/g, " ")
-  return { ...rest, preview: oneLine(plain, 220), activity, pendingPermissions, messages }
+  return { ...rest, preview: oneLine(plain, 220), activity, pendingPermissions, pendingQuestions, messages }
 }
 
 export class Threads extends Context.Service<Threads, {
@@ -219,6 +243,8 @@ export class Threads extends Context.Service<Threads, {
   remove(id: string): Effect.Effect<void>
   setMode(id: string, mode: PermissionMode, source: InputSource): Effect.Effect<void>
   resolvePermission(id: string, requestId: string, decision: Decision, source: InputSource): Effect.Effect<void>
+  /** Gives a waiting thread the user's answers to what it asked, one per question, in order. */
+  answerQuestion(id: string, questionId: string, answers: ReadonlyArray<string>): Effect.Effect<void>
   artifact(threadId: string, artifactId: string): Effect.Effect<Artifact | null>
   /** The folder a thread works in, or `null` when there is no such thread. */
   cwd(threadId: string): Effect.Effect<string | null>
@@ -251,6 +277,7 @@ export class Threads extends Context.Service<Threads, {
             streaming: new Map(),
             openText: [],
             pending: new Map(),
+            questions: new Map(),
             writes: new Map(),
             creates: new Map()
           }
@@ -298,6 +325,7 @@ export class Threads extends Context.Service<Threads, {
           if (item._tag === "Assistant") item.streaming = false
           if (item._tag === "Tool" && item.status === "running") item.status = "error"
           if (item._tag === "Permission" && item.status === "pending") item.status = "denied"
+          if (item._tag === "Question" && item.status === "pending") item.status = "unanswered"
         }
         if (interrupted) {
           thread.status = "error"
@@ -422,6 +450,7 @@ export class Threads extends Context.Service<Threads, {
                 }
               } else if (block.type === "tool_use") {
                 const input = Predicate.isObject(block.input) ? block.input as Record<string, unknown> : {}
+                if (block.name === QUESTION_TOOL) continue
                 if (TASK_TOOLS.has(block.name)) {
                   applyTaskTool(thread, live, block.id, block.name, input)
                   continue
@@ -517,8 +546,61 @@ export class Threads extends Context.Service<Threads, {
       // ---------------------------------------------------------------------
 
       const settlePending = (thread: MutableThread, live: Live) => {
-        if (live.pending.size === 0 && thread.status === "waiting") thread.status = "running"
+        if (live.pending.size === 0 && live.questions.size === 0 && thread.status === "waiting") thread.status = "running"
       }
+
+      /** Ends every wait a thread is in: requests are declined, questions go unanswered. */
+      const releaseWaiting = (live: Live) => {
+        for (const decide of [...live.pending.values()]) decide("deny")
+        for (const answer of [...live.questions.values()]) answer(null)
+      }
+
+      /**
+       * The agent asking the user something. The question goes into the
+       * transcript and the thread waits, in any permission mode: bypass says
+       * yes to actions, and a question is not one. The answers go back to the
+       * agent as the result of its own tool call.
+       */
+      const askQuestion = (
+        thread: MutableThread,
+        live: Live,
+        input: Record<string, unknown>,
+        options: { signal: AbortSignal; toolUseID: string }
+      ): Promise<PermissionResult> =>
+        new Promise((resolve) => {
+          const questions = questionsOf(input)
+          if (questions.length === 0) {
+            resolve({ behavior: "deny", message: "That question could not be read. Ask again with a question and its options." })
+            return
+          }
+          const id = `question-${options.toolUseID}`
+          thread.items.push({ _tag: "Question", id, questions, answers: [], status: "pending", at: Date.now() })
+          thread.status = "waiting"
+          const answer = (answers: ReadonlyArray<string> | null) => {
+            if (!live.questions.delete(id)) return
+            const item = thread.items.findLast((item) => item.id === id)
+            if (item?._tag === "Question") {
+              item.status = answers === null ? "unanswered" : "answered"
+              item.answers = answers === null ? [] : questions.map((_, index) => answers[index] ?? "")
+            }
+            settlePending(thread, live)
+            touch(thread)
+            resolve(
+              answers === null
+                ? { behavior: "deny", message: "The user did not answer. Do not guess on their behalf: stop and say what you need decided." }
+                : {
+                  behavior: "allow",
+                  updatedInput: {
+                    ...input,
+                    answers: Object.fromEntries(questions.map((question, index) => [question.question, answers[index] ?? ""]))
+                  }
+                }
+            )
+          }
+          live.questions.set(id, answer)
+          options.signal.addEventListener("abort", () => answer(null), { once: true })
+          touch(thread)
+        })
 
       const askPermission = (thread: MutableThread, live: Live) =>
       (
@@ -526,7 +608,7 @@ export class Threads extends Context.Service<Threads, {
         input: Record<string, unknown>,
         options: { signal: AbortSignal; suggestions?: Array<PermissionUpdate>; toolUseID: string }
       ): Promise<PermissionResult> =>
-        new Promise((resolve) => {
+        toolName === QUESTION_TOOL ? askQuestion(thread, live, input, options) : new Promise((resolve) => {
           // With permissions bypassed the answer is always yes, and the tool
           // call itself is the record of what ran.
           if (thread.permissionMode === "bypassPermissions") {
@@ -584,7 +666,7 @@ export class Threads extends Context.Service<Threads, {
           Effect.ensuring(Effect.sync(() => {
             if (live.session === session) live.session = null
             if (live.interrupted === session) live.interrupted = null
-            for (const decide of [...live.pending.values()]) decide("deny")
+            releaseWaiting(live)
             finishStreaming(thread, live)
             for (const item of thread.items) {
               if (item._tag === "Tool" && item.status === "running") item.status = "error"
@@ -695,7 +777,7 @@ export class Threads extends Context.Service<Threads, {
             const live = lives.get(id)
             if (!thread || !live?.session) return
             live.stopping = true
-            for (const decide of [...live.pending.values()]) decide("deny")
+            releaseWaiting(live)
             const session = live.session
             live.interrupted = session
             yield* Effect.tryPromise(() => session.query.interrupt()).pipe(
@@ -758,6 +840,10 @@ export class Threads extends Context.Service<Threads, {
               notice(thread, "info", `${decision === "deny" ? "Declined" : "Approved"} by voice: ${oneLine(what, 80)}`)
             }
             decide(decision)
+          }),
+        answerQuestion: (id, questionId, answers) =>
+          Effect.sync(() => {
+            lives.get(id)?.questions.get(questionId)?.(answers)
           }),
         artifact: (threadId, artifactId) =>
           Effect.sync(() => {

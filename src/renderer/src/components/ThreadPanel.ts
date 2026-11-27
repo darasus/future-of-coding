@@ -130,6 +130,46 @@ const permissionCard = (h: H, item: Extract<Item, { _tag: "Permission" }>) =>
 type ItemOf<Tag extends Item["_tag"]> = Extract<Item, { _tag: Tag }>
 
 /**
+ * What a thread has stopped to ask. While it waits, the question and its
+ * choices are laid out to be answered aloud. Afterwards it is one line: what
+ * was asked and what was said.
+ */
+const questionCard = (h: H, item: ItemOf<"Question">) =>
+  item.status === "pending"
+    ? h.div.key(item.id).class("question is-pending").attr("role", "alert").children(
+      ...item.questions.map((question, index) =>
+        h.div.key(String(index)).class("question-block").children(
+          item.questions.length > 1 && question.header !== "" && h.div.class("label").children(question.header),
+          h.p.class("question-text").children(question.question),
+          h.ul.class("question-options").children(
+            ...question.options.map((option) =>
+              h.li.key(option.label).children(
+                h.span.class("option-label").children(option.label),
+                option.description !== "" && h.span.class("option-note").children(option.description)
+              )
+            )
+          )
+        )
+      ),
+      h.p.class("permission-hint").children(
+        Icon(h, "mic"),
+        item.questions.some((question) => question.multiSelect)
+          ? "Say your answer. You can pick more than one, or say something else."
+          : "Say your answer: one of these, or something else."
+      )
+    )
+    : h.div.key(item.id).class("question", `is-${item.status}`).children(
+      ...item.questions.map((question, index) =>
+        h.p.key(String(index)).class("question-line").children(
+          h.span.class("question-asked").children(question.question),
+          h.span.class("question-answer").children(
+            item.status === "answered" ? (item.answers[index] ?? "") : "No answer"
+          )
+        )
+      )
+    )
+
+/**
  * One request and everything that came of it. The view shows what matters:
  * what was asked, what is being decided, and the answer. The steps in between
  * are counted and folded away.
@@ -139,6 +179,8 @@ interface Turn {
   readonly user: ItemOf<"User"> | null
   readonly steps: ReadonlyArray<Item>
   readonly pending: ReadonlyArray<ItemOf<"Permission">>
+  /** What the agent asked the user in this turn, answered or not. */
+  readonly questions: ReadonlyArray<ItemOf<"Question">>
   readonly errors: ReadonlyArray<ItemOf<"Notice">>
   /** The text that closes the turn, or the latest text while it is still running. */
   readonly reply: ItemOf<"Assistant"> | null
@@ -156,7 +198,9 @@ const turnsOf = (items: ReadonlyArray<Item>): ReadonlyArray<Turn> => {
   }
   return groups.map(({ rest, user }) => {
     // The reply is the text after the last piece of work. Earlier text is commentary.
-    const lastWork = rest.findLastIndex((item) => item._tag === "Tool" || item._tag === "Permission")
+    const lastWork = rest.findLastIndex((item) =>
+      item._tag === "Tool" || item._tag === "Permission" || item._tag === "Question"
+    )
     const reply = rest.findLast((item, index): item is ItemOf<"Assistant"> =>
       item._tag === "Assistant" && index > lastWork && item.text.trim() !== ""
     ) ?? null
@@ -167,9 +211,11 @@ const turnsOf = (items: ReadonlyArray<Item>): ReadonlyArray<Turn> => {
       pending: rest.filter((item): item is ItemOf<"Permission"> =>
         item._tag === "Permission" && item.status === "pending"
       ),
+      questions: rest.filter((item): item is ItemOf<"Question"> => item._tag === "Question"),
       errors: rest.filter((item): item is ItemOf<"Notice"> => item._tag === "Notice" && item.level === "error"),
       steps: rest.filter((item) =>
         item !== reply &&
+        item._tag !== "Question" &&
         !(item._tag === "Permission" && item.status === "pending") &&
         !(item._tag === "Notice" && item.level === "error") &&
         !(item._tag === "Assistant" && item.text.trim() === "")
@@ -205,6 +251,7 @@ const stepView = (h: H, item: Item) => {
     case "Notice":
       return h.p.key(item.id).class("step-note is-notice").children(item.text)
     case "User":
+    case "Question":
       return null
   }
 }
@@ -231,9 +278,10 @@ const turnView = (h: H, turn: Turn, running: boolean) =>
         h.summary(Icon(h, "chevron"), stepsSummary(turn.steps)),
         h.div.class("steps-body").children(...turn.steps.map((item) => stepView(h, item)))
       ),
+    ...turn.questions.map((item) => questionCard(h, item)),
     ...turn.pending.map((item) => permissionCard(h, item)),
     running
-      ? turn.pending.length === 0 && nowLine(h, turn)
+      ? turn.pending.length === 0 && !turn.questions.some((item) => item.status === "pending") && nowLine(h, turn)
       : turn.reply !== null && h.div.key(turn.reply.id).class("reply").children(Prose(h, turn.reply.text)),
     ...turn.errors.map((item) => h.div.key(item.id).class("notice is-error").children(item.text))
   )

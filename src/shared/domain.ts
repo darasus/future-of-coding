@@ -71,7 +71,34 @@ export const NoticeItem = Schema.TaggedStruct("Notice", {
   at: Schema.Number
 })
 
-export const Item = Schema.Union([UserItem, AssistantItem, ToolItem, PermissionItem, NoticeItem])
+/** One thing a thread wants the user to decide, with the choices it offers. */
+export const Question = Schema.Struct({
+  question: Schema.String,
+  /** A word or two naming the subject, such as "Provider". */
+  header: Schema.String,
+  options: Schema.Array(Schema.Struct({ label: Schema.String, description: Schema.String })),
+  multiSelect: Schema.Boolean
+})
+export type Question = typeof Question.Type
+
+/**
+ * - `pending`: the thread is waiting for the answer
+ * - `answered`: the user answered, with an option or in their own words
+ * - `unanswered`: the turn ended before anyone answered
+ */
+export const QuestionStatus = Schema.Literals(["pending", "answered", "unanswered"])
+
+/** A thread stopping to ask. It works on nothing else until it is answered. */
+export const QuestionItem = Schema.TaggedStruct("Question", {
+  id: Schema.String,
+  questions: Schema.Array(Question),
+  /** The answer to each question, in the same order. Empty until answered. */
+  answers: Schema.Array(Schema.String),
+  status: QuestionStatus,
+  at: Schema.Number
+})
+
+export const Item = Schema.Union([UserItem, AssistantItem, ToolItem, PermissionItem, QuestionItem, NoticeItem])
 export type Item = typeof Item.Type
 
 export const ArtifactKind = Schema.Literals(["created", "edited"])
@@ -130,6 +157,8 @@ export const ThreadSummary = Schema.Struct({
   preview: Schema.String,
   activity: Schema.String,
   pendingPermissions: Schema.Number,
+  /** How many questions the thread is waiting on the user to answer. */
+  pendingQuestions: Schema.Number,
   messages: Schema.Number
 })
 export type ThreadSummary = typeof ThreadSummary.Type

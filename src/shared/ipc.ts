@@ -59,6 +59,15 @@ export const Rpcs = {
     }),
     Schema.Void
   ),
+  "threads.answerQuestion": rpc(
+    Schema.Struct({
+      id: Schema.String,
+      questionId: Schema.String,
+      /** One answer per question asked, in order: an option's label or the user's own words. */
+      answers: Schema.Array(Schema.String)
+    }),
+    Schema.Void
+  ),
   "artifacts.read": rpc(ArtifactRef, ArtifactContent),
   "artifacts.reveal": rpc(ArtifactRef, Schema.Void),
   "settings.get": rpc(Schema.Void, Settings),

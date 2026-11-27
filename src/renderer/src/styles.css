@@ -1093,6 +1093,85 @@ input::placeholder {
   color: var(--amber);
 }
 
+/* A question the agent has stopped on. It is laid out to be answered aloud:
+   the question large enough to read at a glance, each choice on its own line. */
+.question.is-pending {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: grid;
+  gap: 12px;
+}
+
+.question-block {
+  display: grid;
+  gap: 8px;
+}
+
+.question-text {
+  font-size: 15px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.question-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.question-options li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-left: 14px;
+  position: relative;
+}
+
+.question-options li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.option-label {
+  flex: none;
+  font-weight: 540;
+}
+
+.option-note {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* Once answered it is a line: what was asked, and what was said. */
+.question-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.question-answer {
+  color: var(--text);
+}
+
+.question.is-unanswered .question-answer {
+  color: var(--text-3);
+  font-style: italic;
+}
+
 .notice {
   font-size: 12.5px;
   color: var(--text-3);
@@ -1683,6 +1762,7 @@ input::placeholder {
 .shell[data-ready] .rows > li,
 .transcript[data-ready] .asked,
 .transcript[data-ready] .reply,
+.transcript[data-ready] .question.is-pending,
 .transcript[data-ready] .permission.is-pending {
   transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out), filter 380ms var(--ease-out);
 

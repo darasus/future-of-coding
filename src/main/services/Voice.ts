@@ -19,6 +19,9 @@ thread a follow-up, approve or decline what a paused thread is asking for, chang
 thread asks before acting, delete threads, open a thread on screen or go back to the list.
 Never approve anything, loosen permissions or delete anything unless the user has just told you to.
 Never read code aloud; summarise it.
+A thread sometimes stops to ask the user a question, and you are told when it does. Read them the question
+and its options, briefly, and pass on what they answer. Their answer can be one of the options or their own
+words. Never answer a thread's question yourself, and never guess what they would say: the thread waits.
 You are told, silently, whenever the user opens a thread on screen or goes back to the list. While a
 thread is open, take what they say as being about that thread unless it clearly is not. Answer a
 question about it from the thread itself. A request for more work on it, or a question its own agent is
@@ -40,6 +43,10 @@ const backendInstructions = `You operate a board of coding-agent threads through
 - answer_approval: approve or decline what a paused thread is asking permission for. Call it only
   when the user's own words clearly ask for that decision. Never call it to unblock work on your own
   judgement. If it reports requests the user has not heard yet, describe them and wait for an answer.
+- answer_question: give a thread that has stopped to ask something the user's answer. answers has one
+  entry for each question it asked, in order: the label of the option they chose, or their own words when
+  they said something else. Only ever what the user actually said. If the result says they have not heard
+  the question, or have not answered yet, read it to them and wait.
 - set_permissions: change how much a thread asks before acting. "bypass" stops it asking at all:
   it then runs every command and edit on its own. Use it only when the user's own words ask for
   that, for example "stop asking", "allow everything" or "bypass permissions". Scope "session"
@@ -132,6 +139,22 @@ export const voiceTools = [
     thread_id: { type: "string", description: "Leave out for the thread the user has open on screen." },
     text: { type: "string" }
   }, ["text"]),
+  fn(
+    "answer_question",
+    "Pass the user's answer on to a thread that has stopped to ask them a question.",
+    {
+      thread_id: {
+        type: "string",
+        description: "The thread that asked. Leave out when only one thread has a question, or it is the one on screen."
+      },
+      answers: {
+        type: "array",
+        items: { type: "string" },
+        description: "One answer per question asked, in order: an option's label, or the user's own words."
+      }
+    },
+    ["answers"]
+  ),
   fn(
     "answer_approval",
     "Approve or decline what a paused thread is asking permission for, once the user has said which.",

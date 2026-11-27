@@ -61,15 +61,17 @@ What you can say:
 | "…this one is simple" / "…this needs the best model" | The thread runs on a model to match: Haiku for low, Sonnet for medium, Opus for high, Fable for best. Unsaid, it uses the Claude Code default |
 | "Tell that thread to…" | A follow-up is sent to an existing thread |
 | "Allow it" / "Decline it" | Answers what a paused thread is asking for, once it has been read to you |
+| (your answer to a question) | When a thread stops to ask you something, the assistant reads you the question and its options and passes on what you say: one of the options, or your own words |
 | "Stop asking, bypass permissions" | That thread, or every thread in the conversation, runs without asking |
 | "Ask me again" | Turns permission prompts back on |
 | "Stop that thread" | Interrupts a thread that is working |
 | "Open the thread about…" / "Go back to the list" | Shows that thread in the window, or returns to the list |
 | "Delete that thread" / "Delete the finished ones" | Removes threads for good. One idle thread goes at once; several, or one still working, are read back to you first and go only after you say yes. Files they wrote stay on disk |
 
-The assistant also speaks up on its own when a thread needs approval, finishes or fails. Decisions
-made by voice leave a line in the thread's transcript, and a thread running without permission
-prompts carries a red **Bypass** marker.
+The assistant also speaks up on its own when a thread needs approval, has a question for you, finishes
+or fails. A thread that has asked something waits until you answer; the assistant cannot answer for
+you. Decisions made by voice leave a line in the thread's transcript, and a thread running without
+permission prompts carries a red **Bypass** marker.
 
 ## Layout
 

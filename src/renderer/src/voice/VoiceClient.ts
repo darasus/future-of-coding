@@ -2,7 +2,9 @@ import { Context, Effect, Layer, Predicate, PubSub, Schema, Stream } from "effec
 import {
   type Intelligence,
   intelligenceModels,
+  type Item,
   type PermissionMode,
+  type Question,
   type ThreadStatus,
   type ThreadSummary,
   type Todo
@@ -92,6 +94,7 @@ interface Session {
 interface Seen {
   readonly status: ThreadStatus
   readonly pending: number
+  readonly questions: number
   readonly askedAt: number
 }
 
@@ -117,8 +120,9 @@ const spokenModes: Record<string, PermissionMode> = {
 }
 
 const boardBriefing = `While this conversation runs you receive board updates: a thread needs the user's
-approval, a thread finished, or a thread failed. Pass each one on to the user in a sentence or two as soon as
-it arrives, even if they did not ask. When a thread needs approval, say what it is asking for and ask the
+approval, a thread has a question for them, a thread finished, or a thread failed. Pass each one on to the user
+in a sentence or two as soon as it arrives, even if they did not ask. When a thread has a question, read the
+question and its options and pass on what they answer; never answer it for them. When a thread needs approval, say what it is asking for and ask the
 user whether to allow it. If they answer, delegate their decision to the backend. Never approve or decline on
 your own: the decision is always the user's, and this conversation is the only place they can give it.
 If the user asks to stop being asked, or to allow everything, delegate that too: the backend can switch one
@@ -170,6 +174,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         session = null
         ending.stopWatching()
         heard.clear()
+        asked.clear()
         awaitingDelete = null
         sessionMode = null
         for (const track of ending.microphone.getTracks()) track.stop()
@@ -317,6 +322,83 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       })
 
       // -------------------------------------------------------------------
+      // Questions: a thread asks, the user answers, nobody answers for them
+      // -------------------------------------------------------------------
+
+      /**
+       * Questions this conversation has put to the user, by item id, and
+       * whether the user has said anything since. An answer is only passed on
+       * for a question they have heard and then spoken after, so the model
+       * cannot answer a thread out of its own head.
+       */
+      const asked = new Map<string, { spoke: boolean }>()
+
+      /** What a thread is asking right now, or `null` when it is asking nothing. */
+      const openQuestion = (threadId: string) =>
+        bridge.call("threads.get", { id: threadId }).pipe(
+          Effect.map((thread) =>
+            thread?.items.findLast((item): item is Extract<Item, { _tag: "Question" }> =>
+              item._tag === "Question" && item.status === "pending"
+            ) ?? null
+          ),
+          Effect.catch(() => Effect.succeed(null))
+        )
+
+      /** A question and its choices in words, for the model to read out. */
+      const spoken = (questions: ReadonlyArray<Question>) =>
+        questions.map((question) => ({
+          question: question.question,
+          options: question.options.map((option) =>
+            option.description === "" ? option.label : `${option.label} (${clip(option.description, 120)})`
+          ),
+          ...(question.multiSelect ? { may_choose_several: true } : {})
+        }))
+
+      const answerQuestion = Effect.fnUntraced(function*(threadId: string, answers: ReadonlyArray<string>) {
+        const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
+        const asking = threads.filter((thread) => thread.pendingQuestions > 0)
+        // A real id is used as given. Without one it is the thread on screen
+        // if that one is asking, or the only thread that is.
+        const target = threads.find((thread) => thread.id === threadId) ??
+          asking.find((thread) => thread.id === onScreen) ??
+          (asking.length === 1 ? asking[0] : undefined)
+        if (target === undefined) {
+          return {
+            error: asking.length === 0
+              ? "No thread is waiting on a question."
+              : "Several threads have questions. Call list_threads and pass the thread_id of the one this answers."
+          }
+        }
+        const item = yield* openQuestion(target.id)
+        if (item === null) return { error: `The thread "${target.title}" is not waiting on a question.` }
+        const state = asked.get(item.id)
+        if (state === undefined || !state.spoke) {
+          // Whatever comes back here is about to be read to the user.
+          if (state === undefined) asked.set(item.id, { spoke: false })
+          return {
+            error: state === undefined
+              ? "The user has not heard this question yet. Read it to them with its options and wait for their answer."
+              : "The user has not answered yet. Ask them, and call this again only with what they say.",
+            thread: target.title,
+            questions: spoken(item.questions)
+          }
+        }
+        if (answers.length !== item.questions.length) {
+          return {
+            error: `This thread asked ${item.questions.length} questions. Pass one answer for each, in order.`,
+            questions: spoken(item.questions)
+          }
+        }
+        yield* Effect.ignore(bridge.call("threads.answerQuestion", { id: target.id, questionId: item.id, answers }))
+        asked.delete(item.id)
+        return {
+          thread: target.title,
+          answered: item.questions.map((question, index) => ({ question: question.question, answer: answers[index] })),
+          note: "The thread is carrying on with that answer."
+        }
+      })
+
+      // -------------------------------------------------------------------
       // Deleting: one quiet thread on request, anything more after a yes
       // -------------------------------------------------------------------
 
@@ -438,6 +520,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
                   latest: thread.preview,
                   artifacts: thread.artifacts.length,
                   needs_approval: thread.pendingPermissions > 0,
+                  ...(thread.pendingQuestions > 0 ? { has_a_question_for_the_user: true } : {}),
                   tasks: taskProgress(thread.todos),
                   ...(thread.id === onScreen ? { on_screen: true } : {})
                 }))
@@ -484,6 +567,12 @@ export class VoiceClient extends Context.Service<VoiceClient, {
             return mode === undefined
               ? Effect.succeed({ error: "mode must be ask, accept_edits or bypass." })
               : setPermissions(mode, text("scope"), text("thread_id"))
+          }
+          case "answer_question": {
+            const answers = Array.isArray(args.answers) ? args.answers.filter(Predicate.isString) : []
+            return answers.length === 0
+              ? Effect.succeed({ error: "Pass answers: what the user said, one entry per question." })
+              : answerQuestion(text("thread_id"), answers)
           }
           case "answer_approval":
             return args.decision === "allow" || args.decision === "deny"
@@ -541,17 +630,37 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           )
         }
 
+        /** Puts a thread's question to the user, once. */
+        const relayQuestion = (id: string, title: string) => {
+          void Effect.runPromise(openQuestion(id)).then((item) => {
+            if (item === null || asked.has(item.id)) return
+            asked.set(item.id, { spoke: false })
+            say(
+              channel,
+              `Board update: the thread "${title}" has stopped to ask the user a question and is waiting. ` +
+                spoken(item.questions).map((entry) =>
+                  `${entry.question} Options: ${entry.options.join("; ")}.` +
+                  ("may_choose_several" in entry ? " They may choose more than one." : "")
+                ).join(" ") +
+                " Read it to the user and pass their answer on with answer_question. Do not answer for them."
+            )
+          })
+        }
+
         const consider = (threads: ReadonlyArray<ThreadSummary>) => {
           for (const thread of threads) {
             const before = seen.get(thread.id)
             seen.set(thread.id, {
               status: thread.status,
               pending: thread.pendingPermissions,
+              questions: thread.pendingQuestions,
               askedAt: before?.askedAt ?? 0
             })
             if (!primed) continue
             const title = clip(thread.title, 90)
-            if (thread.pendingPermissions > 0 && (before === undefined || before.pending === 0)) {
+            if (thread.pendingQuestions > 0 && (before === undefined || before.questions === 0)) {
+              relayQuestion(thread.id, title)
+            } else if (thread.pendingPermissions > 0 && (before === undefined || before.pending === 0)) {
               scheduleAsk(thread.id, title)
             } else if (before !== undefined && before.status !== thread.status && thread.status === "done") {
               const files = thread.artifacts.length
@@ -577,7 +686,8 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           consider(threads)
           primed = true
           for (const thread of threads) {
-            if (thread.pendingPermissions > 0) scheduleAsk(thread.id, clip(thread.title, 90))
+            if (thread.pendingQuestions > 0) relayQuestion(thread.id, clip(thread.title, 90))
+            else if (thread.pendingPermissions > 0) scheduleAsk(thread.id, clip(thread.title, 90))
           }
         })
         return () => {
@@ -663,7 +773,10 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           case "session.output_transcript.delta":
             // Anything the user says after being asked counts as their answer
             // having been given; what they said is for the model to judge.
-            if (event.type === "session.input_transcript.delta" && awaitingDelete !== null) awaitingDelete.spoke = true
+            if (event.type === "session.input_transcript.delta") {
+              if (awaitingDelete !== null) awaitingDelete.spoke = true
+              for (const question of asked.values()) question.spoke = true
+            }
             if ("delta" in event && Predicate.isString(event.delta)) {
               emit({
                 _tag: "Heard",

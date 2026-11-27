@@ -112,6 +112,18 @@ For any work that takes more than two steps, create the tasks with TaskCreate be
 in_progress with TaskUpdate when you begin it and completed as soon as it is done, one at a time. Give each
 task a short activeForm such as "Running the tests". Skip the list for a quick answer or a single action.`
 
+/**
+ * Nobody types to a thread. Its questions are read to the person aloud and
+ * their spoken answer comes back, so the agent is told when asking is worth
+ * it and how to ask so it can be said in a breath.
+ */
+const questionBriefing = `Nobody can type to you; the person hears your questions read aloud and answers by voice.
+When a decision is theirs to make and you cannot settle it from the request, the code or a sensible default,
+ask with AskUserQuestion instead of guessing, and wait for the answer. Ask one question at a time where you
+can. Keep the question to one short sentence and give two to four options whose labels are a few words each,
+with the one you recommend first. Do not ask what you could find out yourself. Their answer may be one of
+your options or their own words; follow what they actually say.`
+
 export const openSession = (options: AgentSessionOptions): AgentSession => {
   const input = new InputQueue()
   const sdkOptions: Options = {
@@ -119,11 +131,10 @@ export const openSession = (options: AgentSessionOptions): AgentSession => {
     permissionMode: sdkMode(options.permissionMode),
     includePartialMessages: true,
     canUseTool: options.canUseTool,
-    systemPrompt: { type: "preset", preset: "claude_code", append: taskListBriefing },
+    systemPrompt: { type: "preset", preset: "claude_code", append: `${taskListBriefing}\n\n${questionBriefing}` },
     // The task tools are only offered when asked for. They are bookkeeping, so they never prompt.
+    // AskUserQuestion is left out on purpose: it has to reach `canUseTool`, which is where it is answered.
     allowedTools: ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"],
-    // Questions would need their own UI; the agent asks in plain text instead.
-    disallowedTools: ["AskUserQuestion"],
     env: agentEnv(options.preferSubscription),
     ...(options.model === null ? {} : { model: options.model }),
     ...(options.resume === null ? {} : { resume: options.resume })
