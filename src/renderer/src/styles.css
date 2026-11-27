@@ -1,0 +1,1594 @@
+:root {
+  color-scheme: dark;
+
+  --bg: #050505;
+  /* One fill for every box: a panel, a row, a bubble, a button, a code block.
+     A box inside a box takes the same fill and so reads one step lighter. */
+  --surface: rgba(255, 255, 255, 0.05);
+  /* One corner for every box and control. Only true circles differ. */
+  --radius: 16px;
+  /* Hairlines inside content: table cells, quotes, rules. */
+  --line: rgba(255, 255, 255, 0.07);
+
+  --text: #eceef4;
+  --text-2: #a4a9b8;
+  --text-3: #6b7080;
+
+  /* One accent for anything live or interactive. Green, amber and red only
+     ever mean done, needs you, and failed or unguarded. */
+  --blue: #4f8dff;
+  --green: #3ddc97;
+  --amber: #ffc24b;
+  --red: #ff6b6b;
+
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* Motion. Entrances and presses use the strong ease-out, anything that moves
+     across the screen uses ease-in-out, hover colour changes use plain `ease`,
+     and nothing in the interface eases in. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  /* The curve a sheet opens with: quick off the mark, a long soft landing. */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --morph: 440ms;
+  --blur: 8px;
+  --press: 160ms;
+  --hover: 150ms;
+  --enter: 250ms;
+  --rise: 8px;
+  --pressed: scale(0.97);
+  --row-pressed: scale(0.99);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13.5px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+/* Black easing into a little gray, with no colour of its own. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(70% 55% at 22% 0%, rgba(255, 255, 255, 0.05), transparent 72%),
+    radial-gradient(60% 50% at 88% 100%, rgba(255, 255, 255, 0.03), transparent 72%),
+    linear-gradient(180deg, #0c0c0d 0%, #050505 100%);
+  pointer-events: none;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(79, 141, 255, 0.4);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+input::placeholder {
+  color: var(--text-3);
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.muted {
+  color: var(--text-2);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.fine {
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shell: a list of threads, the voice dock, and one open thread       */
+/* ------------------------------------------------------------------ */
+
+.shell {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.shell.has-detail {
+  grid-template-columns: 360px minmax(0, 1fr);
+}
+
+/* The strip the window is dragged by. It holds the one piece of chrome. */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  -webkit-app-region: drag;
+}
+
+.topbar button {
+  -webkit-app-region: no-drag;
+}
+
+.board {
+  view-transition-name: board;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shell.has-detail .board {
+  max-width: none;
+}
+
+/* With nothing on the board there is only the orb. */
+.board.is-empty {
+  justify-content: center;
+}
+
+.detail {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+.panel {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ */
+/* Threads                                                             */
+/* ------------------------------------------------------------------ */
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 2px;
+}
+
+.row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  text-align: left;
+  transition: background var(--hover) ease, transform var(--press) var(--ease-out);
+}
+
+.row:hover {
+  background: var(--surface);
+}
+
+.row.selected {
+  background: var(--surface);
+}
+
+.row-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.row-title,
+.row-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-title {
+  font-weight: 550;
+  letter-spacing: -0.005em;
+}
+
+.row-state {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.row-state.is-live {
+  color: var(--text-2);
+}
+
+.row-count {
+  font: 11px var(--mono);
+  color: var(--text-3);
+}
+
+/* A thread that no longer asks before acting says so wherever it appears. */
+.bypass {
+  font: 600 9.5px var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--red);
+}
+
+.is-idle {
+  --status: #7d8496;
+}
+
+.is-running {
+  --status: var(--blue);
+}
+
+.is-waiting {
+  --status: var(--amber);
+}
+
+.is-done {
+  --status: var(--green);
+}
+
+.is-error {
+  --status: var(--red);
+}
+
+.status-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--status, var(--text-3));
+}
+
+.status-dot.is-done {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+}
+
+.status-dot.is-running::after,
+.status-dot.is-waiting::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1px solid var(--status);
+  animation: ping 1.8s var(--ease-out) infinite;
+}
+
+@keyframes ping {
+  from {
+    transform: scale(0.5);
+    opacity: 0.9;
+  }
+
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons                                                             */
+/* ------------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 12.5px;
+  font-weight: 520;
+  white-space: nowrap;
+  transition: background var(--hover) ease, color var(--hover) ease, transform var(--press) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+}
+
+.btn.ghost {
+  color: var(--text-2);
+}
+
+.btn.ghost:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  color: var(--text-3);
+  transition: background var(--hover) ease, color var(--hover) ease, transform var(--press) var(--ease-out);
+}
+
+.icon-btn:hover,
+.icon-btn.active {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.text-btn {
+  padding: 4px 11px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  transition: background var(--hover) ease, color var(--hover) ease, transform var(--press) var(--ease-out);
+}
+
+.text-btn:hover,
+.text-btn.active {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.6px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* An open thread                                                      */
+/* ------------------------------------------------------------------ */
+
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 14px 14px 26px;
+}
+
+.panel-title {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.panel-title h2 {
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.012em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  padding: 30px;
+  text-align: center;
+  color: var(--text-3);
+}
+
+/* The agent's own list of what is done and what is left. */
+.tasks {
+  flex: none;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 4px 26px 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.tasks-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tasks-title {
+  font: 600 10.5px var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.tasks.all-done .tasks-title {
+  color: var(--green);
+}
+
+.tasks-count {
+  font: 11px var(--mono);
+  color: var(--text-3);
+}
+
+.tasks-bar {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.tasks-fill {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  transform-origin: left;
+  transition: transform 300ms var(--ease-in-out);
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.task {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  font-size: 13px;
+  color: var(--text-2);
+  transition: color var(--hover) ease;
+}
+
+.task-mark {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-3);
+}
+
+.task-mark .icon {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.4;
+}
+
+.task-mark .spinner {
+  width: 11px;
+  height: 11px;
+}
+
+.task.is-completed {
+  color: var(--text-3);
+}
+
+.task.is-completed .task-mark {
+  border-color: transparent;
+  color: var(--green);
+}
+
+.task.is-in_progress {
+  color: var(--text);
+}
+
+.task.is-in_progress .task-mark {
+  border-color: transparent;
+  color: var(--blue);
+}
+
+/* The conversation: what was asked, and what came of it. */
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  user-select: text;
+  cursor: auto;
+}
+
+/* The title, the tasks and the conversation share one left edge. */
+.transcript-inner {
+  max-width: 760px;
+  padding: 10px 26px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.turn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.asked {
+  align-self: flex-end;
+  max-width: 84%;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.prose {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.62;
+}
+
+.prose.plain {
+  white-space: pre-wrap;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose pre,
+.prose blockquote,
+.prose table {
+  margin: 0 0 10px;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  margin: 18px 0 8px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.prose h1 {
+  font-size: 16px;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 20px;
+}
+
+.prose li + li {
+  margin-top: 3px;
+}
+
+.prose a {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.prose a:hover {
+  text-decoration: underline;
+}
+
+.prose code {
+  font: 12px var(--mono);
+  padding: 1px 5px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.prose pre,
+.tool-body pre,
+.permission pre,
+.code {
+  font: 12px/1.55 var(--mono);
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.prose pre code {
+  padding: 0;
+  background: none;
+}
+
+.prose blockquote {
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+  color: var(--text-2);
+}
+
+.prose table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.prose th,
+.prose td {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 14px 0;
+}
+
+/* What a turn did, folded into one line. */
+.steps > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  font: 11.5px var(--mono);
+  color: var(--text-3);
+  transition: color var(--hover) ease;
+}
+
+.steps > summary::-webkit-details-marker {
+  display: none;
+}
+
+.steps > summary:hover {
+  color: var(--text-2);
+}
+
+.steps > summary .icon {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--press) var(--ease-out);
+}
+
+.steps[open] > summary .icon {
+  transform: rotate(90deg);
+}
+
+.steps-body {
+  display: grid;
+  /* A long command must truncate inside its row, not widen the column. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.step-note {
+  padding: 2px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.step-note.is-notice {
+  font: 11.5px var(--mono);
+}
+
+.tool {
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.tool summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius);
+  transition: background var(--hover) ease;
+}
+
+.tool summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool summary:hover {
+  background: var(--surface);
+}
+
+.tool-icon {
+  display: grid;
+  color: var(--text-3);
+}
+
+.tool-icon .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.tool-name {
+  font: 600 11.5px var(--mono);
+  color: var(--text-2);
+}
+
+.tool-summary {
+  flex: 1;
+  min-width: 0;
+  font: 11.5px var(--mono);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-state {
+  display: grid;
+  color: var(--text-3);
+}
+
+.tool-state .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.tool.is-error .tool-state {
+  color: var(--red);
+}
+
+.tool.is-running .tool-state {
+  color: var(--blue);
+}
+
+.tool-body {
+  padding: 4px 11px 11px;
+  display: grid;
+  gap: 6px;
+}
+
+.tool-body pre,
+.permission pre {
+  max-height: 260px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.label {
+  font: 600 10px var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* What the agent is doing right now, in a line or two. */
+.now {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.pulse {
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+  animation: breathe 1.2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.now-text {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* A request the agent is waiting on. */
+.permission {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: grid;
+  gap: 9px;
+}
+
+.permission.is-allowed,
+.permission.is-denied {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px;
+  background: none;
+  color: var(--text-3);
+}
+
+.permission-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 560;
+}
+
+.permission.is-pending .permission-head .icon {
+  color: var(--amber);
+}
+
+.permission.is-allowed .permission-head,
+.permission.is-denied .permission-head {
+  flex: none;
+  white-space: nowrap;
+  font-weight: 450;
+  font-size: 12px;
+}
+
+.permission.is-allowed .permission-head .icon,
+.permission.is-denied .permission-head .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.permission-summary {
+  font: 12px var(--mono);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.permission.is-allowed .permission-summary,
+.permission.is-denied .permission-summary {
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-detail summary {
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.permission-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.permission-hint .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--amber);
+}
+
+.notice {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.notice.is-error {
+  color: var(--red);
+}
+
+/* ------------------------------------------------------------------ */
+/* Files a thread made                                                 */
+/* ------------------------------------------------------------------ */
+
+.files {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 12px 20px;
+}
+
+.file-names {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.file-name {
+  flex: none;
+  padding: 4px 11px;
+  border-radius: var(--radius);
+  font: 11.5px var(--mono);
+  color: var(--text-3);
+  transition: background var(--hover) ease, color var(--hover) ease, transform var(--press) var(--ease-out);
+}
+
+.file-name:hover {
+  color: var(--text);
+}
+
+.file-name.selected {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.preview-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.files .code {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  overflow: auto;
+  user-select: text;
+  cursor: auto;
+}
+
+.truncated {
+  color: var(--text-3);
+}
+
+.preview-image {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+}
+
+.preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius);
+}
+
+/* ------------------------------------------------------------------ */
+/* Voice: the one way to direct the board                              */
+/* ------------------------------------------------------------------ */
+
+/* No box of its own: the lamps and the line sit straight on the window. */
+.voice {
+  flex: none;
+  padding: 4px 14px 8px;
+  display: grid;
+  gap: 10px;
+}
+
+/* The display is the button: press it to talk, press it to stop. */
+.voice-screen {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius);
+  transition: transform var(--press) var(--ease-out), opacity var(--hover) ease;
+}
+
+.voice.is-off .voice-screen {
+  opacity: 0.75;
+}
+
+.voice.is-off .voice-screen:hover {
+  opacity: 1;
+}
+
+/* Drawn lamp by lamp, so it stays sharp at any size. */
+.voice-matrix {
+  display: block;
+  width: 100%;
+  height: 70px;
+}
+
+.voice-line {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.voice-label {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 10.5px var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+/* Red, as on anything that is recording. */
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 10px var(--red);
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+/* The conversation as one running line. The newest word is pinned to the
+   right edge, so the line slides left as it grows and dissolves on the way out. */
+.ticker {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 55%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 55%);
+}
+
+.ticker-run {
+  flex: none;
+  white-space: pre;
+  font-size: 13px;
+}
+
+/* Your words are quieter than the assistant's. */
+.word.is-user {
+  color: var(--text-3);
+}
+
+.word.is-assistant {
+  color: var(--text);
+}
+
+.voice-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--red);
+  font-size: 12.5px;
+}
+
+.voice-error p {
+  flex: 1;
+}
+
+/* Nothing on the board yet: the display is the whole interface. */
+.board.is-empty .voice {
+  gap: 18px;
+  padding: 0;
+  background: none;
+}
+
+.board.is-empty .voice-matrix {
+  height: 142px;
+}
+
+.board.is-empty .voice-line {
+  justify-content: center;
+}
+
+.board.is-empty .ticker {
+  flex: 0 1 auto;
+}
+
+/* ------------------------------------------------------------------ */
+/* Settings                                                            */
+/* ------------------------------------------------------------------ */
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 26px 26px;
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  max-width: 640px;
+}
+
+.setting-group {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.setting-group h3 {
+  font: 600 10.5px var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.setting-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 540;
+}
+
+.setting-status .icon {
+  color: var(--text-2);
+}
+
+.setting-row,
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.setting-row > div,
+.toggle > span {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.setting-row .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toggle input {
+  appearance: none;
+  width: 34px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--radius);
+  background: var(--surface);
+  position: relative;
+  transition: background var(--hover) ease;
+  cursor: pointer;
+}
+
+.toggle input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--press) var(--ease-out);
+}
+
+.toggle input:checked {
+  background: var(--blue);
+}
+
+.toggle input:checked::after {
+  transform: translateX(14px);
+}
+
+.setting-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setting-form input,
+.field input {
+  flex: 1;
+  min-width: 150px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: 12.5px var(--mono);
+  user-select: text;
+}
+
+.field {
+  flex: 1;
+  min-width: 150px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.saved {
+  font-size: 12px;
+  color: var(--green);
+  padding-right: 8px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion                                                              */
+/* ------------------------------------------------------------------ */
+
+/* Press feedback: anything pressable gives a little under the pointer. */
+.btn:active:not(:disabled),
+.icon-btn:active,
+.text-btn:active,
+.file-name:active {
+  transform: var(--pressed);
+}
+
+.voice-screen:active {
+  transform: var(--row-pressed);
+}
+
+.row:active {
+  transform: var(--row-pressed);
+}
+
+/* Launch, once per start: the list comes into focus as it rises. It carries
+   its rows: one entrance per container. */
+.board {
+  animation: materialize 600ms var(--ease-out) backwards;
+}
+
+@keyframes materialize {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(var(--blur));
+  }
+}
+
+/* ---- Opening a thread ------------------------------------------------ */
+
+/* The row you pressed and the panel it opens are one object. They share a
+   name, so the browser grows the row's box into the panel's and shrinks it
+   back on close, while the list slides aside on the same clock. */
+.thread-panel {
+  view-transition-name: thread-morph;
+}
+
+.settings {
+  view-transition-name: settings-panel;
+}
+
+::view-transition-group(thread-morph),
+::view-transition-group(board) {
+  animation-duration: var(--morph);
+  animation-timing-function: var(--ease-drawer);
+}
+
+::view-transition-group(thread-morph) {
+  border-radius: var(--radius);
+  overflow: clip;
+}
+
+/* Neither picture is stretched to fit the changing box. Each stays its real
+   size, pinned to the corner they share, and the box uncovers the panel as it
+   grows. */
+::view-transition-old(thread-morph),
+::view-transition-new(thread-morph),
+::view-transition-old(board),
+::view-transition-new(board) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+
+/* Opening: the row is gone almost at once, the panel fills in behind it. */
+::view-transition-old(thread-morph) {
+  animation: fade-out 160ms var(--ease-out) both;
+}
+
+::view-transition-new(thread-morph) {
+  animation: fade-in 320ms var(--ease-out) 60ms both;
+}
+
+/* Closing: the panel lingers a moment as it shrinks, then the row is there. */
+:root:active-view-transition-type(close)::view-transition-old(thread-morph) {
+  animation: fade-out 240ms var(--ease-out) both;
+}
+
+:root:active-view-transition-type(close)::view-transition-new(thread-morph) {
+  animation: fade-in 260ms var(--ease-out) 160ms both;
+}
+
+/* One panel giving way to another, or a thread to its files: the old one
+   blurs out as the new one comes into focus from just below. The blur hides
+   the moment both are on screen. */
+:root:active-view-transition-type(switch)::view-transition-old(thread-morph),
+:root:active-view-transition-type(switch)::view-transition-old(settings-panel) {
+  animation: blur-out 180ms var(--ease-out) both;
+}
+
+:root:active-view-transition-type(switch)::view-transition-new(thread-morph) {
+  animation: focus-in 340ms var(--ease-out) 40ms both;
+}
+
+/* Settings opens from the control that opened it, in the corner. */
+::view-transition-new(settings-panel) {
+  transform-origin: 100% 0;
+  animation: pop-in 320ms var(--ease-out) both;
+}
+
+::view-transition-old(settings-panel) {
+  animation: fade-out 180ms var(--ease-out) both;
+}
+
+/* The rest of the window only cross-fades. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+  animation-timing-function: var(--ease-out);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes blur-out {
+  to {
+    opacity: 0;
+    filter: blur(var(--blur));
+  }
+}
+
+@keyframes focus-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise));
+    filter: blur(var(--blur));
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(var(--blur));
+  }
+}
+
+/* ---- Things arriving ------------------------------------------------- */
+
+/* After launch the shell is marked ready, and only what arrives later
+   animates. These are transitions, so a second arrival mid-flight retargets
+   instead of restarting. Each arrival comes into focus as it rises: a new
+   thread from the dock that asked for it, your words and the answer in an
+   open thread. */
+.shell[data-ready] .rows > li,
+.transcript[data-ready] .asked,
+.transcript[data-ready] .reply,
+.transcript[data-ready] .permission.is-pending {
+  transition: opacity 380ms var(--ease-out), transform 380ms var(--ease-out), filter 380ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(var(--rise));
+    filter: blur(var(--blur));
+  }
+}
+
+/* The agent's running commentary only fades: it changes too often to move. */
+.transcript[data-ready] .steps,
+.transcript[data-ready] .now,
+.transcript[data-ready] .notice {
+  transition: opacity 200ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+/* Each word of the conversation comes into focus as it is said. */
+.word {
+  transition: opacity 320ms var(--ease-out), filter 320ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    filter: blur(var(--blur));
+  }
+}
+
+/* A task ticks off: the mark lands, the text settles back. */
+.task-mark .icon {
+  transition: opacity 260ms var(--ease-out), transform 260ms var(--ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* The folded steps, a tool call and a permission's detail open to their own height. */
+.tool,
+.steps,
+.permission-detail {
+  interpolate-size: allow-keywords;
+}
+
+.tool::details-content,
+.steps::details-content,
+.permission-detail::details-content {
+  height: 0;
+  opacity: 0;
+  overflow: clip;
+  transition: height 200ms var(--ease-out), opacity 200ms var(--ease-out),
+    content-visibility 200ms allow-discrete;
+}
+
+.tool[open]::details-content,
+.steps[open]::details-content,
+.permission-detail[open]::details-content {
+  height: auto;
+  opacity: 1;
+}
+
+/* Reduced motion keeps the fades and colour changes that explain what
+   happened, and drops movement, scaling, blur and the looping indicators. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --rise: 0px;
+    --blur: 0px;
+    --pressed: none;
+    --row-pressed: none;
+  }
+
+  .board {
+    animation-name: fade-in;
+  }
+
+  ::view-transition-group(*) {
+    animation: none !important;
+  }
+
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 160ms !important;
+    animation-delay: 0ms !important;
+  }
+
+  .status-dot::after {
+    animation: none;
+  }
+
+  .tool::details-content,
+  .steps::details-content,
+  .permission-detail::details-content {
+    transition: opacity 200ms var(--ease-out), content-visibility 200ms allow-discrete;
+  }
+}
