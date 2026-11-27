@@ -47,6 +47,11 @@ class InputQueue {
     return this.buffered.length
   }
 
+  /** True once `end` has been called: nothing pushed after that is ever read. */
+  get closed(): boolean {
+    return this.ended
+  }
+
   [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
     return {
       next: () => {

@@ -156,7 +156,36 @@ const questionsOf = (input: Record<string, unknown>): Array<Question> =>
 const todoStatus = (value: unknown): Todo["status"] =>
   value === "in_progress" || value === "completed" ? value : "pending"
 
-/** Applies a task-tool call to the list. `TaskCreate` waits for its result, which carries the id. */
+type TasksItem = Extract<MutableItem, { _tag: "Tasks" }>
+
+/**
+ * The task list of the turn in progress: the one since the user's latest
+ * message. With `create`, a turn that has none yet gets one, placed in the
+ * conversation where the agent started on it.
+ */
+const turnTasks = (thread: MutableThread, create: boolean): TasksItem | null => {
+  const lastUser = thread.items.findLastIndex((item) => item._tag === "User")
+  const found = thread.items.findLast((item, index) => index > lastUser && item._tag === "Tasks")
+  if (found?._tag === "Tasks") return found
+  if (!create) return null
+  const item: TasksItem = { _tag: "Tasks", id: `tasks-${randomUUID()}`, todos: [], at: Date.now() }
+  thread.items.push(item)
+  return item
+}
+
+/** The newest task list holding a task. An id can come round again in a later turn, so the newest wins. */
+const tasksHolding = (thread: MutableThread, id: string | null): TasksItem | null => {
+  const found = thread.items.findLast((item) => item._tag === "Tasks" && item.todos.some((todo) => todo.id === id))
+  return found?._tag === "Tasks" ? found : null
+}
+
+/** `thread.todos` is what the thread is on now: the latest turn's list. The board and the voice read it. */
+const mirrorTasks = (thread: MutableThread) => {
+  const latest = thread.items.findLast((item) => item._tag === "Tasks")
+  thread.todos = latest?._tag === "Tasks" ? latest.todos.map((todo) => ({ ...todo })) : []
+}
+
+/** Applies a task-tool call to the turn's list. `TaskCreate` waits for its result, which carries the id. */
 const applyTaskTool = (
   thread: MutableThread,
   live: Live,
@@ -165,7 +194,8 @@ const applyTaskTool = (
   input: Record<string, unknown>
 ) => {
   if (name === "TodoWrite" && Array.isArray(input.todos)) {
-    thread.todos = input.todos.filter(Predicate.isObject).map((todo: Record<string, unknown>, index) => {
+    // This tool rewrites the whole list each time, so it is this turn's list.
+    turnTasks(thread, true)!.todos = input.todos.filter(Predicate.isObject).map((todo: Record<string, unknown>, index) => {
       const content = Predicate.isString(todo.content) ? todo.content : ""
       return {
         id: String(index + 1),
@@ -174,21 +204,30 @@ const applyTaskTool = (
         status: todoStatus(todo.status)
       }
     })
+    mirrorTasks(thread)
   } else if (name === "TaskCreate") {
     const content = stringField(input, "subject") ?? ""
     live.creates.set(toolUseId, { content, activeForm: stringField(input, "activeForm") ?? content })
   } else if (name === "TaskUpdate") {
     const id = stringField(input, "taskId")
+    const holder = tasksHolding(thread, id)
+    if (holder === null) return
     if (input.status === "deleted") {
-      thread.todos = thread.todos.filter((todo) => todo.id !== id)
-      return
+      holder.todos = holder.todos.filter((todo) => todo.id !== id)
+      // A list with nothing left on it is not worth a place in the conversation.
+      if (holder.todos.length === 0) thread.items = thread.items.filter((item) => item !== holder)
+    } else {
+      const content = stringField(input, "subject")
+      holder.todos = holder.todos.map((todo) =>
+        todo.id !== id ? todo : {
+          id: todo.id,
+          content: content ?? todo.content,
+          activeForm: stringField(input, "activeForm") ?? (content ?? todo.activeForm),
+          status: input.status === undefined ? todo.status : todoStatus(input.status)
+        }
+      )
     }
-    const todo = thread.todos.find((todo) => todo.id === id)
-    if (!todo) return
-    const content = stringField(input, "subject")
-    if (content !== null) todo.content = content
-    todo.activeForm = stringField(input, "activeForm") ?? (content ?? todo.activeForm)
-    if (input.status !== undefined) todo.status = todoStatus(input.status)
+    mirrorTasks(thread)
   }
 }
 
@@ -326,6 +365,17 @@ export class Threads extends Context.Service<Threads, {
           if (item._tag === "Tool" && item.status === "running") item.status = "error"
           if (item._tag === "Permission" && item.status === "pending") item.status = "denied"
           if (item._tag === "Question" && item.status === "pending") item.status = "unanswered"
+        }
+        // Threads saved before task lists lived in the conversation have one
+        // loose list. It belongs to their latest turn.
+        if (thread.todos.length > 0 && !thread.items.some((item) => item._tag === "Tasks")) {
+          const lastUser = thread.items.findLastIndex((item) => item._tag === "User")
+          thread.items.splice(lastUser + 1, 0, {
+            _tag: "Tasks",
+            id: `tasks-${thread.id}`,
+            todos: thread.todos.map((todo) => ({ ...todo })),
+            at: thread.items[lastUser]?.at ?? thread.createdAt
+          })
         }
         if (interrupted) {
           thread.status = "error"
@@ -499,7 +549,9 @@ export class Threads extends Context.Service<Threads, {
                   const id = Predicate.isObject(task) && "id" in task
                     ? String(task.id)
                     : /#(\d+)/.exec(resultText(block.content))?.[1] ?? String(thread.todos.length + 1)
-                  thread.todos.push({ id, ...created, status: "pending" })
+                  const tasks = turnTasks(thread, true)!
+                  tasks.todos = [...tasks.todos, { id, ...created, status: "pending" }]
+                  mirrorTasks(thread)
                 }
                 continue
               }
@@ -659,13 +711,20 @@ export class Threads extends Context.Service<Threads, {
           Effect.catch((error) =>
             Effect.sync(() => {
               if (live.stopping || live.interrupted === session) return
+              // A newer session has the thread now; this one's end is not its failure.
+              if (live.session !== null && live.session !== session) return
               notice(thread, "error", error instanceof Error ? error.message : String(error))
               thread.status = "error"
             })
           ),
           Effect.ensuring(Effect.sync(() => {
+            // A follow-up can start the next session while this one is still
+            // on its way out. What is running and waiting then belongs to the
+            // new one, and is not this session's to clear.
+            const replaced = live.session !== null && live.session !== session
             if (live.session === session) live.session = null
             if (live.interrupted === session) live.interrupted = null
+            if (replaced) return
             releaseWaiting(live)
             finishStreaming(thread, live)
             for (const item of thread.items) {
@@ -702,7 +761,10 @@ export class Threads extends Context.Service<Threads, {
         thread.items.push({ _tag: "User", id: randomUUID(), text, source, at: Date.now() })
         thread.status = "running"
         touch(thread)
-        if (live.session && !live.stopping) {
+        // A session that has finished its turn has closed its input and is on
+        // its way out. A message pushed to it would never be read, so the
+        // follow-up starts the next session instead.
+        if (live.session && !live.stopping && !live.session.input.closed) {
           live.session.input.push(text)
         } else {
           yield* start(thread, text)

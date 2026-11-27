@@ -71,6 +71,28 @@ export const NoticeItem = Schema.TaggedStruct("Notice", {
   at: Schema.Number
 })
 
+/** One entry of the task list an agent keeps while it works. */
+export const Todo = Schema.Struct({
+  id: Schema.String,
+  content: Schema.String,
+  /** The task as an activity in progress, such as "Running the tests". */
+  activeForm: Schema.String,
+  status: Schema.Literals(["pending", "in_progress", "completed"])
+})
+export type Todo = typeof Todo.Type
+
+/**
+ * The tasks an agent set itself during one turn, in the conversation at the
+ * point it started on them. A thread has one of these for each turn that
+ * kept a list, so what was planned and done stays with the request it was
+ * for. The entry is updated in place as the tasks are ticked off.
+ */
+export const TasksItem = Schema.TaggedStruct("Tasks", {
+  id: Schema.String,
+  todos: Schema.Array(Todo),
+  at: Schema.Number
+})
+
 /** One thing a thread wants the user to decide, with the choices it offers. */
 export const Question = Schema.Struct({
   question: Schema.String,
@@ -98,7 +120,15 @@ export const QuestionItem = Schema.TaggedStruct("Question", {
   at: Schema.Number
 })
 
-export const Item = Schema.Union([UserItem, AssistantItem, ToolItem, PermissionItem, QuestionItem, NoticeItem])
+export const Item = Schema.Union([
+  UserItem,
+  AssistantItem,
+  ToolItem,
+  PermissionItem,
+  QuestionItem,
+  TasksItem,
+  NoticeItem
+])
 export type Item = typeof Item.Type
 
 export const ArtifactKind = Schema.Literals(["created", "edited"])
@@ -120,16 +150,6 @@ export const ThreadStats = Schema.Struct({
   durationMs: Schema.Number
 })
 
-/** One entry of the task list an agent keeps while it works. */
-export const Todo = Schema.Struct({
-  id: Schema.String,
-  content: Schema.String,
-  /** The task as an activity in progress, such as "Running the tests". */
-  activeForm: Schema.String,
-  status: Schema.Literals(["pending", "in_progress", "completed"])
-})
-export type Todo = typeof Todo.Type
-
 const threadFields = {
   id: Schema.String,
   title: Schema.String,
@@ -142,6 +162,7 @@ const threadFields = {
   updatedAt: Schema.Number,
   stats: ThreadStats,
   artifacts: Schema.Array(Artifact),
+  /** The task list of the latest turn that kept one: what the thread is on now. */
   todos: Schema.Array(Todo)
 }
 

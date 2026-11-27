@@ -2,7 +2,7 @@ import { Command, Component, Mount, UiSchema } from "@effect/ui"
 import { Html } from "@effect/ui/html"
 import { Effect, Layer, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { type Artifact, type Item, PREVIEW_SCHEME, type Thread, type Todo } from "../../../shared/domain.ts"
+import { type Artifact, type Item, PREVIEW_SCHEME, type Thread } from "../../../shared/domain.ts"
 import { folderName, modelLabel } from "../format.ts"
 import { ReadArtifact, WatchThread } from "../queries.ts"
 import { Bridge } from "../services/Bridge.ts"
@@ -181,6 +181,8 @@ interface Turn {
   readonly pending: ReadonlyArray<ItemOf<"Permission">>
   /** What the agent asked the user in this turn, answered or not. */
   readonly questions: ReadonlyArray<ItemOf<"Question">>
+  /** The tasks the agent set itself for this request. */
+  readonly tasks: ReadonlyArray<ItemOf<"Tasks">>
   readonly errors: ReadonlyArray<ItemOf<"Notice">>
   /** The text that closes the turn, or the latest text while it is still running. */
   readonly reply: ItemOf<"Assistant"> | null
@@ -212,10 +214,12 @@ const turnsOf = (items: ReadonlyArray<Item>): ReadonlyArray<Turn> => {
         item._tag === "Permission" && item.status === "pending"
       ),
       questions: rest.filter((item): item is ItemOf<"Question"> => item._tag === "Question"),
+      tasks: rest.filter((item): item is ItemOf<"Tasks"> => item._tag === "Tasks" && item.todos.length > 0),
       errors: rest.filter((item): item is ItemOf<"Notice"> => item._tag === "Notice" && item.level === "error"),
       steps: rest.filter((item) =>
         item !== reply &&
         item._tag !== "Question" &&
+        item._tag !== "Tasks" &&
         !(item._tag === "Permission" && item.status === "pending") &&
         !(item._tag === "Notice" && item.level === "error") &&
         !(item._tag === "Assistant" && item.text.trim() === "")
@@ -252,6 +256,7 @@ const stepView = (h: H, item: Item) => {
       return h.p.key(item.id).class("step-note is-notice").children(item.text)
     case "User":
     case "Question":
+    case "Tasks":
       return null
   }
 }
@@ -270,36 +275,24 @@ const nowLine = (h: H, turn: Turn) => {
   )
 }
 
-const turnView = (h: H, turn: Turn, running: boolean) =>
-  h.div.key(turn.key).class("turn-group").children(
-    turn.user !== null && h.div.key(turn.user.id).class("asked").children(turn.user.text),
-    turn.steps.some((item) => item._tag === "Tool") &&
-      h.details.key("steps").class("steps").children(
-        h.summary(Icon(h, "chevron"), stepsSummary(turn.steps)),
-        h.div.class("steps-body").children(...turn.steps.map((item) => stepView(h, item)))
-      ),
-    ...turn.questions.map((item) => questionCard(h, item)),
-    ...turn.pending.map((item) => permissionCard(h, item)),
-    running
-      ? turn.pending.length === 0 && !turn.questions.some((item) => item.status === "pending") && nowLine(h, turn)
-      : turn.reply !== null && h.div.key(turn.reply.id).class("reply").children(Prose(h, turn.reply.text)),
-    ...turn.errors.map((item) => h.div.key(item.id).class("notice is-error").children(item.text))
-  )
-
-/** The agent's own task list: what is done, what it is on, what is left. */
-const Tasks = (h: H, todos: ReadonlyArray<Todo>) => {
-  const done = todos.filter((todo) => todo.status === "completed").length
-  const allDone = done === todos.length
-  return h.section.class("tasks", allDone && "all-done").attr("aria-label", "Tasks").children(
+/**
+ * The tasks the agent set itself for one request: what is done, what it is
+ * on, what is left. They sit in the conversation under the request they are
+ * for, and stay there, ticked off, once the work is finished.
+ */
+const tasksView = (h: H, item: ItemOf<"Tasks">) => {
+  const done = item.todos.filter((todo) => todo.status === "completed").length
+  const allDone = done === item.todos.length
+  return h.section.key(item.id).class("tasks", allDone && "all-done").attr("aria-label", "Tasks").children(
     h.div.class("tasks-head").children(
-      h.span.class("tasks-title").children(allDone ? "All tasks done" : "Tasks"),
-      h.span.class("tasks-count").children(`${done} of ${todos.length}`),
+      h.span.class("tasks-title").children("Tasks"),
+      h.span.class("tasks-count").children(`${done} of ${item.todos.length}`),
       h.span.class("tasks-bar").children(
-        h.span.class("tasks-fill").style({ transform: `scaleX(${todos.length === 0 ? 0 : done / todos.length})` })
+        h.span.class("tasks-fill").style({ transform: `scaleX(${done / item.todos.length})` })
       )
     ),
-    !allDone && h.ul.class("task-list").children(
-      ...todos.map((todo) =>
+    h.ul.class("task-list").children(
+      ...item.todos.map((todo) =>
         h.li.key(todo.id).class("task", `is-${todo.status}`).children(
           h.span.class("task-mark").children(
             todo.status === "completed"
@@ -315,10 +308,29 @@ const Tasks = (h: H, todos: ReadonlyArray<Todo>) => {
   )
 }
 
+const turnView = (h: H, turn: Turn, running: boolean) =>
+  h.div.key(turn.key).class("turn-group").children(
+    turn.user !== null && h.div.key(turn.user.id).class("asked").children(turn.user.text),
+    ...turn.tasks.map((item) => tasksView(h, item)),
+    turn.steps.some((item) => item._tag === "Tool") &&
+      h.details.key("steps").class("steps").children(
+        h.summary(Icon(h, "chevron"), stepsSummary(turn.steps)),
+        h.div.class("steps-body").children(...turn.steps.map((item) => stepView(h, item)))
+      ),
+    ...turn.questions.map((item) => questionCard(h, item)),
+    ...turn.pending.map((item) => permissionCard(h, item)),
+    running
+      ? turn.pending.length === 0 && !turn.questions.some((item) => item.status === "pending") && nowLine(h, turn)
+      : turn.reply !== null && h.div.key(turn.reply.id).class("reply").children(Prose(h, turn.reply.text)),
+    ...turn.errors.map((item) => h.div.key(item.id).class("notice is-error").children(item.text))
+  )
+
 /** A number that changes whenever the transcript grows, for `FollowEnd`. */
 const revision = (thread: Thread) =>
   thread.items.reduce(
-    (total, item) => total + 1 + ("text" in item ? item.text.length : 0) + ("status" in item ? item.status.length : 0),
+    (total, item) =>
+      total + 1 + ("text" in item ? item.text.length : 0) + ("status" in item ? item.status.length : 0) +
+      (item._tag === "Tasks" ? item.todos.reduce((sum, todo) => sum + todo.status.length, 0) : 0),
     0
   )
 
@@ -422,7 +434,6 @@ const threadView = ThreadPanelDef.fragment((h, model: ThreadPanelModel, thread: 
           .on("click", ThreadPanelMessage.ClickedClose()).children(Icon(h, "close"))
       )
     ),
-    model.tab === "thread" && thread.todos.length > 0 && Tasks(h, thread.todos),
     model.tab === "thread" ? transcript(h, thread) : filesView(h, thread, model.artifactId)
   )
 })

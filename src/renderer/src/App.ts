@@ -1,10 +1,10 @@
-import { Command, Component, Subscription, UiSchema } from "@effect/ui"
+import { Command, Component, Mount, Subscription, UiSchema } from "@effect/ui"
 import { Html, HtmlSubscription } from "@effect/ui/html"
 import { Effect, Schema, Stream } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import type { ThreadStatus, ThreadSummary } from "../../shared/domain.ts"
 import { Icon } from "./components/icons.ts"
-import { MarkReady } from "./components/mounts.ts"
+import { MarkReady, RowMotion } from "./components/mounts.ts"
 import { SettingsPanel } from "./components/SettingsPanel.ts"
 import { ThreadPanel } from "./components/ThreadPanel.ts"
 import { VoiceOrb } from "./components/VoiceOrb.ts"
@@ -46,10 +46,8 @@ const rank: Record<ThreadStatus, number> = { waiting: 0, error: 0, running: 1, i
  */
 const MORPH = "thread-morph"
 
-/** A thread in two lines: what it is, and where it stands. */
+/** A thread in two lines and nothing else: what it is, and where it stands. */
 const ThreadRow = (h: H, thread: ThreadSummary, morphs: boolean) => {
-  const done = thread.todos.filter((todo) => todo.status === "completed").length
-  const busy = thread.status === "running" || thread.status === "waiting"
   const state = thread.activity !== "" ? thread.activity : thread.preview
   return h.li.key(thread.id).children(
     h.button.class("row", `is-${thread.status}`)
@@ -64,10 +62,7 @@ const ThreadRow = (h: H, thread: ThreadSummary, morphs: boolean) => {
         h.span.class("row-text").children(
           h.span.class("row-title").children(thread.title),
           state !== "" && h.span.class("row-state", thread.activity !== "" && "is-live").children(state)
-        ),
-        busy && thread.todos.length > 0 && h.span.class("row-count").children(`${done}/${thread.todos.length}`),
-        thread.permissionMode === "bypassPermissions" &&
-          h.span.class("bypass").attr("title", "Runs without asking").children("Bypass")
+        )
       )
   )
 }
@@ -105,7 +100,8 @@ export const AppNoDeps = Html.component({
     RequestedCloseSettings: ($) => $.evolve({ settingsOpen: false }).viewTransition(["switch"]),
     RequestedCloseThread: ($) =>
       $.evolve({ selectedId: null, armedId: null, returnId: $.model.selectedId }).viewTransition(["close"]),
-    DeletedThread: ($) => $.evolve({ selectedId: null, armedId: null, returnId: null }).viewTransition(["close"]),
+    // Deleted while open: there is no row to shrink back into, so the thread is erased where it stands.
+    DeletedThread: ($) => $.evolve({ selectedId: null, armedId: null, returnId: null }).viewTransition(["delete"]),
     // The assistant puts a thread on screen, or goes back to the list, with
     // the same motion a click or Escape would have.
     VoiceAskedToShow: ($, { id }) => {
@@ -170,7 +166,9 @@ export const AppNoDeps = Html.component({
             h.p.class("board-hint-title").children("No threads yet"),
             h.p("Press Space and say what you want built.")
           )
-          : h.ul.class("rows").attr("aria-label", "Threads").children(
+          : h.ul.class("rows").attr("aria-label", "Threads")
+            .onMount(RowMotion({ list: "threads" }).pipe(Mount.map((never) => never)))
+            .children(
             ...threads.map((thread) =>
               ThreadRow(h, thread, model.armedId === thread.id || model.returnId === thread.id)
             )

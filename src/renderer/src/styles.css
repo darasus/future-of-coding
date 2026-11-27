@@ -32,6 +32,8 @@
   /* The curve a sheet opens with: quick off the mark, a long soft landing. */
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --morph: 440ms;
+  /* How long the lamps take to print a new thread onto the list, or erase one. */
+  --print: 520ms;
   --blur: 8px;
   --press: 160ms;
   --hover: 150ms;
@@ -225,16 +227,23 @@ input::placeholder {
   position: relative;
   height: 100%;
   display: grid;
-  /* The strip above, the list or an open thread, and the voice display,
-     which is always the floor of the window. */
-  grid-template-rows: 40px minmax(0, 1fr) auto;
+  /* The header strip, the list or an open thread, and the voice display,
+     which is always the floor of the window. The header is as tall as the
+     strip under the voice display, so the window is closed off the same way
+     at both ends. */
+  grid-template-rows: var(--band-foot) minmax(0, 1fr) auto;
   grid-template-columns: minmax(0, 1fr);
   padding: 0 var(--pad);
 }
 
 /* The strip the window is dragged by. It holds the one piece of chrome. */
+/* A black strip across the top of the window, behind the window's own
+   buttons. It is what the window is dragged by, and holds the one control. */
 .topbar {
   grid-column: 1 / -1;
+  margin-inline: calc(-1 * var(--pad));
+  padding-inline: var(--pad);
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -258,17 +267,17 @@ input::placeholder {
   margin-inline: max(var(--pad), calc((100vw - var(--column)) / 2));
 }
 
-/* Threads stand on the voice display and stack upward from it. */
+/* The threads, from the top down. The voice display is the floor below them. */
 .board {
   grid-row: 2;
   grid-column: 1;
   view-transition-name: board;
   min-height: 0;
   min-width: 0;
-  padding-bottom: 12px;
+  padding-block: var(--pad);
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 /* Before the first thread: where it will appear, and how to get one. */
@@ -293,7 +302,7 @@ input::placeholder {
   grid-column: 1;
   min-height: 0;
   min-width: 0;
-  padding-bottom: 12px;
+  padding-block: var(--pad);
   display: flex;
 }
 
@@ -372,13 +381,8 @@ input::placeholder {
   color: var(--text-2);
 }
 
-.row-count {
-  font: 11px var(--mono);
-  color: var(--text-3);
-}
-
-/* A thread that no longer asks before acting says so wherever it appears:
-   in ordinary type, set apart only by its colour. */
+/* A thread that no longer asks before acting says so beside its name when it
+   is open: in ordinary type, set apart only by its colour. */
 .bypass {
   font-size: 12px;
   color: var(--red);
@@ -572,30 +576,11 @@ input::placeholder {
   color: var(--text-3);
 }
 
-/* The agent's own list of what is done and what is left. */
+/* The agent's own list of what is done and what is left. It is part of the
+   conversation: under the request the tasks are for. */
 .tasks {
-  flex: none;
-  max-height: 40%;
-  max-width: calc(var(--gutter) + var(--column) + 26px);
-  overflow-y: auto;
-  padding: 4px 26px 16px var(--gutter);
   display: grid;
   gap: 10px;
-}
-
-/* In a wide panel the tasks move into the margin beside the conversation,
-   where they stay in view while you read. */
-@container panel (min-width: 1400px) {
-  .tasks {
-    position: absolute;
-    top: 78px;
-    left: calc(var(--gutter) + var(--column) + 44px);
-    width: min(300px, calc(100% - var(--gutter) - var(--column) - 70px));
-    max-width: none;
-    max-height: calc(100% - 104px);
-    padding: 0;
-    align-content: start;
-  }
 }
 
 .tasks-head {
@@ -611,7 +596,7 @@ input::placeholder {
   color: var(--text-3);
 }
 
-.tasks.all-done .tasks-title {
+.tasks.all-done .tasks-count {
   color: var(--green);
 }
 
@@ -1271,12 +1256,14 @@ input::placeholder {
 
 /* The floor of the window, edge to edge: a strip of the backdrop that lights
    up, and under it one line for the state and what is being said. The three
-   heights below add up to --band-foot. */
+   heights below add up to --band-foot, and that much of the foot is the same
+   black as the header strip. */
 .voice {
   grid-row: 3;
   grid-column: 1 / -1;
-  margin-inline: -12px;
+  margin-inline: calc(-1 * var(--pad));
   padding-bottom: 8px;
+  background: linear-gradient(to top, var(--bg) var(--band-foot), transparent var(--band-foot));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
@@ -1304,12 +1291,13 @@ input::placeholder {
   height: var(--band);
 }
 
-/* Starts where the thread rows start, or, with a thread open, where its
-   conversation does. */
+/* The middle column, the same whether the list or a thread is above it, so
+   nothing on this line shifts when one gives way to the other. */
 .voice-line {
   min-width: 0;
   height: 20px;
-  padding-inline: 14px;
+  /* So the state label can measure the line it is centred on. */
+  container-type: inline-size;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1324,13 +1312,33 @@ input::placeholder {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-2);
+  /* How far toward the middle of the line the label sits: 1 is centred, 0 is
+     at the left. Only this number is animated. The distance it stands for
+     (`50cqi` is half the line's width) follows the layout at once, so the
+     label slides when words start or stop and never because the window or
+     what is above it changed. */
+  --centred: 0;
+  translate: calc(var(--centred) * (50cqi - 50%)) 0;
+  transition: --centred 420ms var(--ease-in-out);
 }
 
-/* Under an open thread the line starts at the conversation's left edge. */
-.shell.has-detail .voice-line,
-.shell.has-detail .voice-error {
-  margin-inline: calc(var(--pad) + var(--gutter));
-  padding-inline: 0;
+/* With nothing being said, the state sits in the middle of the strip. When
+   words start to run it slides to the left to make room for them, and back
+   again when the conversation ends. */
+.voice.is-off .voice-label,
+.voice-line:not(:has(.word)) .voice-label {
+  --centred: 1;
+}
+
+/* What was said in a conversation that is over is not kept on screen. */
+.voice.is-off .ticker {
+  display: none;
+}
+
+@property --centred {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
 }
 
 /* Red, as on anything that is recording. */
@@ -1374,16 +1382,16 @@ input::placeholder {
    move. The whole message is in its tooltip. */
 .voice-error {
   height: 20px;
-  padding-inline: 14px;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   color: var(--red);
   font-size: 12.5px;
 }
 
 .voice-error p {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1614,12 +1622,6 @@ input::placeholder {
   object-position: left top;
 }
 
-/* The list is anchored to its foot, where the threads are. */
-::view-transition-old(board),
-::view-transition-new(board) {
-  object-position: left bottom;
-}
-
 ::view-transition-old(board):only-child {
   animation: fade-out 180ms var(--ease-out) both;
 }
@@ -1754,12 +1756,10 @@ input::placeholder {
 
 /* ---- Things arriving ------------------------------------------------- */
 
-/* After launch the shell is marked ready, and only what arrives later
-   animates. These are transitions, so a second arrival mid-flight retargets
-   instead of restarting. Each arrival comes into focus as it rises: a new
-   thread from the dock that asked for it, your words and the answer in an
-   open thread. */
-.shell[data-ready] .rows > li,
+/* After the transcript is marked ready, only what arrives later animates.
+   These are transitions, so a second arrival mid-flight retargets instead of
+   restarting. Each arrival comes into focus as it rises: your words and the
+   answer in an open thread. */
 .transcript[data-ready] .asked,
 .transcript[data-ready] .reply,
 .transcript[data-ready] .question.is-pending,
@@ -1773,7 +1773,128 @@ input::placeholder {
   }
 }
 
+/* ---- Threads coming and going ----------------------------------------- */
+
+/* A thread is printed onto the list and erased from it by the window's own
+   lamps. A block of lit lamps crosses the row: arriving, the row appears in
+   its wake, left to right; deleted, the row disappears ahead of it, right to
+   left, the same path back. The lamps are the backdrop's, on the same grid,
+   which is why the block is drawn fixed to the window.
+
+   --sweep runs from 0 to 1.22: the block is 22% of the row wide, so it needs
+   that much more travel to leave the far edge. It is the one number animated;
+   the shapes below are worked out from it. The block is brightest at its
+   leading edge and thins out behind, like a lamp that has just gone past. Which rows get this is decided
+   in `RowMotion` (components/mounts.ts). */
+@property --sweep {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1.22;
+}
+
+.rows > li {
+  position: relative;
+}
+
+.rows > li[data-arriving],
+.row-ghost {
+  --lead: min(var(--sweep), 1);
+  --tail: max(var(--sweep) - 0.22, 0);
+  animation: sweep var(--print) var(--ease-in-out) backwards;
+}
+
+@keyframes sweep {
+  from {
+    --sweep: 0;
+  }
+}
+
+/* The block of lamps. */
+.rows > li[data-arriving]::after,
+.row-ghost::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: left bottom / var(--pitch) var(--pitch) fixed;
+}
+
+/* Arriving: the block leads from the left in the accent colour, and the row
+   is uncovered behind its trailing edge. */
+.rows > li[data-arriving]::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect y='2' width='4' height='4' fill='%234f8dff'/%3E%3C/svg%3E");
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent calc(var(--tail) * 100%),
+    #000 calc(var(--lead) * 100%),
+    transparent calc(var(--lead) * 100%)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent calc(var(--tail) * 100%),
+    #000 calc(var(--lead) * 100%),
+    transparent calc(var(--lead) * 100%)
+  );
+}
+
+.rows > li[data-arriving] > .row {
+  clip-path: inset(0 calc((1 - var(--tail)) * 100%) 0 0);
+}
+
+/* Erased: a copy of the row, laid where the row was. The block comes from the
+   right in plain white and the row is gone ahead of its leading edge. */
+.row-ghosts {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.row-ghost {
+  position: fixed;
+  margin: 0;
+  list-style: none;
+  animation-fill-mode: both;
+}
+
+.row-ghost::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect y='2' width='4' height='4' fill='%23eceef4'/%3E%3C/svg%3E");
+  opacity: 0.8;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent calc((1 - var(--lead)) * 100%),
+    #000 calc((1 - var(--lead)) * 100%),
+    transparent calc((1 - var(--tail)) * 100%)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent calc((1 - var(--lead)) * 100%),
+    #000 calc((1 - var(--lead)) * 100%),
+    transparent calc((1 - var(--tail)) * 100%)
+  );
+}
+
+.row-ghost > .row {
+  clip-path: inset(0 calc(var(--lead) * 100%) 0 0);
+}
+
+/* A thread deleted while it is open is wiped the same way, right to left. */
+:root:active-view-transition-type(delete)::view-transition-old(thread-morph) {
+  animation: wipe-away var(--morph) var(--ease-in-out) both;
+}
+
+@keyframes wipe-away {
+  from {
+    clip-path: inset(0 0 0 0);
+  }
+
+  to {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
 /* The agent's running commentary only fades: it changes too often to move. */
+.transcript[data-ready] .tasks,
 .transcript[data-ready] .steps,
 .transcript[data-ready] .now,
 .transcript[data-ready] .notice {
@@ -1854,6 +1975,30 @@ input::placeholder {
 
   .status-dot::after {
     animation: none;
+  }
+
+  .voice-label {
+    transition: none;
+  }
+
+  /* No sweep and no lamps: a thread fades in, and a deleted one fades out. */
+  .rows > li[data-arriving],
+  .row-ghost {
+    animation: fade-in 200ms var(--ease-out) backwards;
+  }
+
+  .row-ghost {
+    animation: fade-out 200ms var(--ease-out) both;
+  }
+
+  .rows > li[data-arriving]::after,
+  .row-ghost::after {
+    content: none;
+  }
+
+  .rows > li[data-arriving] > .row,
+  .row-ghost > .row {
+    clip-path: none;
   }
 
   .tool::details-content,

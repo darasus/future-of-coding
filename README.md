@@ -50,8 +50,8 @@ behalf. In development the key can also come from `OPENAI_API_KEY` in `.env.loca
 
 Press Space, or click the line of lamps that runs across the window, to start talking; press it again
 to stop. The lamps show the pitch and loudness of both voices: yours in white, the assistant's in
-blue. The line is the floor of the window: the threads stand on it and stack upward, and an open
-thread fills the window above it.
+blue. The line is the floor of the window: the threads are listed from the top down above it, and an
+open thread fills the window.
 
 What you can say:
 
@@ -71,7 +71,7 @@ What you can say:
 The assistant also speaks up on its own when a thread needs approval, has a question for you, finishes
 or fails. A thread that has asked something waits until you answer; the assistant cannot answer for
 you. Decisions made by voice leave a line in the thread's transcript, and a thread running without
-permission prompts carries a red **Bypass** marker.
+permission prompts shows a red **Bypass** beside its name when you open it.
 
 ## Layout
 

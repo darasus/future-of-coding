@@ -60,8 +60,8 @@ const servePreview = async (cwd: string | null, requestUrl: string): Promise<Res
 const isAppUrl = (url: string) =>
   DEV_URL !== undefined ? url.startsWith(DEV_URL) : url.startsWith("file://")
 
-/** The height of the strip above the content: the first grid row of `.shell` in the stylesheet. */
-const TOP_STRIP = 40
+/** The height of the header strip: `--band-foot`, the first grid row of `.shell` in the stylesheet. */
+const TOP_STRIP = 36
 /**
  * How tall the close, minimise and zoom buttons are. macOS made them larger in
  * version 26. They are placed so the space above and below them in the strip
