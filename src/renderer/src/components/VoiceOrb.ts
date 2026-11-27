@@ -77,6 +77,7 @@ const toolLabels: Record<string, string> = {
   stop_thread: "Stopping a thread",
   answer_approval: "Answering a request",
   answer_question: "Passing on your answer",
+  app_update: "Checking for updates",
   set_permissions: "Changing permissions",
   set_intelligence: "Choosing a model",
   open_thread: "Opening a thread",

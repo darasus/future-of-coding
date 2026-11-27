@@ -12,9 +12,38 @@ import { SettingsStore } from "./services/SettingsStore.ts"
 import * as Database from "./services/Database.ts"
 import { ThreadStore } from "./services/ThreadStore.ts"
 import { Threads } from "./services/Threads.ts"
+import { Updates } from "./services/Updates.ts"
 import { Voice } from "./services/Voice.ts"
 
 const DEV_URL = process.env.ELECTRON_RENDERER_URL
+
+// The installed app and a copy run from source are different programs that
+// would otherwise share one data folder, each keeping its own picture of the
+// threads in memory and saving over the other. So a copy run from source has
+// a folder of its own. It has to be chosen before the app is ready.
+const INSTALLED_DATA = path.join(app.getPath("appData"), "future-of-coding")
+const SOURCE_DATA = path.join(app.getPath("appData"), "future-of-coding-dev")
+if (process.env.FOC_DATA_DIR !== undefined) {
+  // For trying a build without touching real threads.
+  app.setPath("userData", process.env.FOC_DATA_DIR)
+} else {
+  app.setPath("userData", app.isPackaged ? INSTALLED_DATA : SOURCE_DATA)
+}
+
+/**
+ * The first time the app runs from source, it starts with a copy of the
+ * installed app's threads and settings, so nothing seems to have gone missing.
+ */
+const seedSourceData = async () => {
+  if (app.isPackaged || process.env.FOC_DATA_DIR !== undefined) return
+  const mine = path.join(SOURCE_DATA, Database.DATABASE_FILE)
+  const exists = (file: string) => fs.access(file).then(() => true, () => false)
+  if (await exists(mine) || !(await exists(path.join(INSTALLED_DATA, Database.DATABASE_FILE)))) return
+  await fs.mkdir(SOURCE_DATA, { recursive: true })
+  for (const suffix of ["", "-wal", "-shm"]) {
+    await fs.copyFile(path.join(INSTALLED_DATA, Database.DATABASE_FILE + suffix), mine + suffix).catch(() => undefined)
+  }
+}
 
 // A standard scheme, so a previewed page's relative links resolve against it.
 // This has to happen before the app is ready.
@@ -104,7 +133,19 @@ const createWindow = () => {
 }
 
 const main = async () => {
+  // One installed copy at a time: a second launch brings the first to the front.
+  if (app.isPackaged && !app.requestSingleInstanceLock()) {
+    app.quit()
+    return
+  }
+  app.on("second-instance", () => {
+    const [window] = BrowserWindow.getAllWindows()
+    if (window === undefined) return
+    if (window.isMinimized()) window.restore()
+    window.focus()
+  })
   await app.whenReady()
+  await seedSourceData()
   nativeTheme.themeSource = "dark"
 
   // In development, keys can live in .env or .env.local beside package.json.
@@ -127,7 +168,7 @@ const main = async () => {
     permission === "media" && contents !== null && isAppUrl(contents.getURL())
   )
 
-  const Services = Layer.mergeAll(Artifacts.layer, Voice.layer).pipe(
+  const Services = Layer.mergeAll(Artifacts.layer, Voice.layer, Updates.layer).pipe(
     Layer.provideMerge(Threads.layer),
     Layer.provideMerge(SettingsStore.layer),
     Layer.provideMerge(Events.layer),
@@ -143,7 +184,7 @@ const main = async () => {
     const handler = handlers[name as keyof typeof handlers] as (payload: unknown) => Effect.Effect<
       unknown,
       { readonly message: string },
-      Threads | Artifacts | SettingsStore | Voice
+      Threads | Artifacts | SettingsStore | Voice | Updates
     >
     return runtime.runPromise(
       Schema.decodeUnknownEffect(rpc.payload as Schema.Codec<unknown>)(payload).pipe(

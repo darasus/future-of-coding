@@ -6,7 +6,30 @@ import {
   query,
   type SDKUserMessage
 } from "@anthropic-ai/claude-agent-sdk"
+import { createRequire } from "node:module"
+import * as path from "node:path"
 import type { PermissionMode } from "../../shared/domain.ts"
+
+/**
+ * Where the Claude Code program is in an installed copy of the app, or
+ * `undefined` when running from source, where the SDK finds it by itself.
+ *
+ * An installed app keeps its code in one archive, and a program cannot be
+ * started from inside an archive, so the build leaves this one beside it
+ * (`asarUnpack` in electron-builder.yml). The SDK only knows the path inside
+ * the archive, so the app works out the real one and hands it over.
+ */
+const installedClaude = ((): string | undefined => {
+  if (!import.meta.dirname.includes("app.asar")) return undefined
+  try {
+    const require = createRequire(import.meta.url)
+    const sdk = createRequire(require.resolve("@anthropic-ai/claude-agent-sdk"))
+    const manifest = sdk.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)
+    return path.join(path.dirname(manifest), "claude").replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`)
+  } catch {
+    return undefined
+  }
+})()
 
 /**
  * The user's messages for one agent session. The Agent SDK reads them as an
@@ -141,6 +164,7 @@ export const openSession = (options: AgentSessionOptions): AgentSession => {
     // AskUserQuestion is left out on purpose: it has to reach `canUseTool`, which is where it is answered.
     allowedTools: ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"],
     env: agentEnv(options.preferSubscription),
+    ...(installedClaude === undefined ? {} : { pathToClaudeCodeExecutable: installedClaude }),
     ...(options.model === null ? {} : { model: options.model }),
     ...(options.resume === null ? {} : { resume: options.resume })
   }

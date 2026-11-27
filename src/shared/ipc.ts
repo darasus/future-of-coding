@@ -7,7 +7,9 @@ import {
   Settings,
   SettingsPatch,
   Thread,
-  ThreadSummary
+  ThreadSummary,
+  UpdateMode,
+  UpdateStatus
 } from "./domain.ts"
 
 export const RPC_CHANNEL = "foc:rpc"
@@ -74,6 +76,11 @@ export const Rpcs = {
   "settings.update": rpc(SettingsPatch, Settings),
   "account.get": rpc(Schema.Void, Account),
   "dialog.pickFolder": rpc(Schema.Void, Schema.NullOr(Schema.String)),
+  "updates.get": rpc(Schema.Void, UpdateStatus),
+  "updates.check": rpc(Schema.Void, Schema.Void),
+  "updates.download": rpc(Schema.Void, Schema.Void),
+  "updates.install": rpc(Schema.Void, Schema.Void),
+  "updates.setMode": rpc(Schema.Struct({ mode: UpdateMode }), Schema.Void),
   "voice.connect": rpc(
     Schema.Struct({ sdp: Schema.String }),
     Schema.Struct({ sessionId: Schema.String, sdp: Schema.String })
@@ -94,7 +101,8 @@ export const AppEvent = Schema.Union([
   Schema.TaggedStruct("Summaries", { summaries: Schema.Array(ThreadSummary) }),
   Schema.TaggedStruct("Thread", { thread: Thread }),
   Schema.TaggedStruct("ThreadDeleted", { id: Schema.String }),
-  Schema.TaggedStruct("Account", { account: Account })
+  Schema.TaggedStruct("Account", { account: Account }),
+  Schema.TaggedStruct("Update", { status: UpdateStatus })
 ])
 export type AppEvent = typeof AppEvent.Type
 

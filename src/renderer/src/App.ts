@@ -1,14 +1,16 @@
 import { Command, Component, Mount, Subscription, UiSchema } from "@effect/ui"
 import { Html, HtmlSubscription } from "@effect/ui/html"
-import { Effect, Schema, Stream } from "effect"
+import { Effect, Layer, Schema, Stream } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import type { ThreadStatus, ThreadSummary } from "../../shared/domain.ts"
+import type { ThreadStatus, ThreadSummary, UpdateStatus } from "../../shared/domain.ts"
 import { Icon } from "./components/icons.ts"
+import { Bridge } from "./services/Bridge.ts"
 import { MarkReady, RowMotion } from "./components/mounts.ts"
 import { SettingsPanel } from "./components/SettingsPanel.ts"
 import { ThreadPanel } from "./components/ThreadPanel.ts"
 import { VoiceOrb } from "./components/VoiceOrb.ts"
-import { WatchAccount, WatchSummaries } from "./queries.ts"
+import { RunUpdate } from "./components/updates.ts"
+import { WatchAccount, WatchSummaries, WatchUpdate } from "./queries.ts"
 
 export const AppMessage = UiSchema.TaggedEnum({
   PressedThread: { id: Schema.String },
@@ -19,6 +21,8 @@ export const AppMessage = UiSchema.TaggedEnum({
   RequestedCloseThread: {},
   DeletedThread: {},
   PressedEscape: {},
+  ClickedDownloadUpdate: {},
+  ClickedInstallUpdate: {},
   VoiceAskedToShow: { id: Schema.NullOr(Schema.String) }
 })
 
@@ -67,6 +71,30 @@ const ThreadRow = (h: H, thread: ThreadSummary, morphs: boolean) => {
   )
 }
 
+/**
+ * The header says when there is something to do about an update, and nothing
+ * otherwise: a new version to fetch, one on its way, or one waiting for a
+ * restart. Everything else about updates is in settings.
+ */
+const UpdatePill = (h: H, status: UpdateStatus) => {
+  const state = status.state
+  switch (state._tag) {
+    case "Available":
+      return h.button.class("update-pill").attrs({ type: "button", title: `Download version ${state.version}` })
+        .on("click", AppMessage.ClickedDownloadUpdate()).children("Update available")
+    case "Downloading":
+      return h.span.class("update-pill is-busy").attr("role", "status").children(`Downloading update ${state.percent}%`)
+    case "Ready":
+      return h.button.class("update-pill is-ready")
+        .attrs({ type: "button", title: `Restart into version ${state.version}` })
+        .on("click", AppMessage.ClickedInstallUpdate()).children("Restart to update")
+    case "Installing":
+      return h.span.class("update-pill is-busy").attr("role", "status").children("Installing update")
+    default:
+      return false
+  }
+}
+
 export const AppNoDeps = Html.component({
   name: "App",
   model: Schema.Struct({
@@ -80,7 +108,8 @@ export const AppNoDeps = Html.component({
   message: AppMessage,
   queries: {
     summaries: { query: WatchSummaries, args: () => ({}) },
-    account: { query: WatchAccount, args: () => ({}) }
+    account: { query: WatchAccount, args: () => ({}) },
+    update: { query: WatchUpdate, args: () => ({}) }
   }
 }).make({
   init: () => ({ selectedId: null, settingsOpen: false, armedId: null, returnId: null }),
@@ -119,6 +148,8 @@ export const AppNoDeps = Html.component({
       }
       return $.evolve({ armedId: id, returnId: null }).run(OpenMarkedThread.make({ id }))
     },
+    ClickedDownloadUpdate: ($) => $.run(RunUpdate.make({ action: "download" })),
+    ClickedInstallUpdate: ($) => $.run(RunUpdate.make({ action: "install" })),
     // Escape goes back one step: out of settings, then out of the thread.
     PressedEscape: ($) =>
       $.model.settingsOpen
@@ -141,12 +172,14 @@ export const AppNoDeps = Html.component({
     const loaded = AsyncResult.isSuccess(h.queries.summaries) ? h.queries.summaries.value : []
     const threads = [...loaded].sort((a, b) => rank[a.status] - rank[b.status] || b.updatedAt - a.updatedAt)
     const account = AsyncResult.isSuccess(h.queries.account) ? h.queries.account.value : null
+    const update = AsyncResult.isSuccess(h.queries.update) ? h.queries.update.value : null
     // A thread that was deleted elsewhere leaves nothing to show.
     const selectedId = threads.some((thread) => thread.id === model.selectedId) ? model.selectedId : null
     const detail = model.settingsOpen || selectedId !== null
     return h.div.class("shell", detail && "has-detail", threads.length === 0 && "is-empty")
       .onMount(MarkReady({ after: 900 })).children(
       h.header.class("topbar").children(
+        update !== null && UpdatePill(h, update),
         h.button.class("icon-btn", model.settingsOpen && "active")
           .attrs({ type: "button", title: "Settings", "aria-label": "Settings", "aria-pressed": String(model.settingsOpen) })
           .on("click", AppMessage.ClickedSettings()).children(Icon(h, "settings"))
@@ -177,7 +210,7 @@ export const AppNoDeps = Html.component({
       detail && h.main.class("detail").children(
         model.settingsOpen
           ? SettingsPanel(h, {
-            props: { account },
+            props: { account, update },
             onEmit: { RequestedClose: () => AppMessage.RequestedCloseSettings() }
           })
           : selectedId !== null && ThreadPanel(h, {
@@ -195,5 +228,11 @@ export const AppNoDeps = Html.component({
 })
 
 export const App = AppNoDeps.pipe(
-  Component.provide([WatchSummaries.layer, WatchAccount.layer, OpenMarkedThread.layer])
+  Component.provide([
+    WatchSummaries.layer,
+    WatchAccount.layer,
+    WatchUpdate.layer,
+    OpenMarkedThread.layer,
+    RunUpdate.layer.pipe(Layer.provide(Bridge.layer))
+  ])
 )

@@ -1,4 +1,5 @@
 import type { ThreadStatus } from "../../shared/domain.ts"
+import type { UpdateStatus } from "../../shared/domain.ts"
 
 export const statusLabel: Record<ThreadStatus, string> = {
   idle: "Queued",
@@ -36,3 +37,28 @@ export const duration = (ms: number) => {
 
 export const bytes = (count: number) =>
   count < 1024 ? `${count} B` : count < 1024 * 1024 ? `${(count / 1024).toFixed(1)} KB` : `${(count / 1024 / 1024).toFixed(1)} MB`
+
+/** Where an update stands, in a sentence. */
+export const updateLine = (status: UpdateStatus): string => {
+  const state = status.state
+  switch (state._tag) {
+    case "Unavailable":
+      return state.reason
+    case "Idle":
+      return "Not checked yet"
+    case "Checking":
+      return "Checking for updates"
+    case "UpToDate":
+      return "Up to date"
+    case "Available":
+      return `Version ${state.version} is available`
+    case "Downloading":
+      return `Downloading version ${state.version} · ${state.percent}%`
+    case "Ready":
+      return `Version ${state.version} is ready. It goes in when the app restarts.`
+    case "Installing":
+      return `Installing version ${state.version}. The app restarts when it is in place.`
+    case "Failed":
+      return `Couldn't update. ${state.message}`
+  }
+}

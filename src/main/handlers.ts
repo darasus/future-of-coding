@@ -4,9 +4,10 @@ import type { RpcName, RpcPayload, RpcSuccess } from "../shared/ipc.ts"
 import { Artifacts } from "./services/Artifacts.ts"
 import { SettingsStore } from "./services/SettingsStore.ts"
 import { type ThreadError, Threads } from "./services/Threads.ts"
+import { Updates } from "./services/Updates.ts"
 import { Voice, type VoiceError } from "./services/Voice.ts"
 
-type Services = Threads | Artifacts | SettingsStore | Voice
+type Services = Threads | Artifacts | SettingsStore | Voice | Updates
 
 type Handlers = {
   readonly [N in RpcName]: (payload: RpcPayload<N>) => Effect.Effect<RpcSuccess<N>, VoiceError | ThreadError, Services>
@@ -43,5 +44,10 @@ export const handlers: Handlers = {
       const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
       return result.canceled ? null : result.filePaths[0] ?? null
     }),
+  "updates.get": () => Updates.use((updates) => updates.status),
+  "updates.check": () => Updates.use((updates) => updates.check),
+  "updates.download": () => Updates.use((updates) => updates.download),
+  "updates.install": () => Updates.use((updates) => updates.install),
+  "updates.setMode": ({ mode }) => Updates.use((updates) => updates.setMode(mode)),
   "voice.connect": ({ sdp }) => Voice.use((voice) => voice.connect(sdp))
 }

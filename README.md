@@ -77,6 +77,39 @@ or fails. A thread that has asked something waits until you answer; the assistan
 you. Decisions made by voice leave a line in the thread's transcript, and a thread running without
 permission prompts shows a red **Bypass** beside its name when you open it.
 
+## Updates
+
+An installed copy keeps itself up to date. It looks for a new version a few seconds after it starts
+and every four hours after that, and the header says so when there is something to do: **Update
+available**, **Downloading update**, then **Restart to update**. Settings has the rest: the running
+version, a button to check now, what is new in the version found, and how far the app goes on its own:
+
+| Setting | What happens with a new version |
+| --- | --- |
+| Tell me | The app says there is one and waits for you to download it |
+| Download it (the default) | It is downloaded in the background, and waits for you to restart |
+| Install it | It is downloaded, and the app restarts into it once the window is out of sight and no thread is working |
+
+A downloaded version also goes in when you quit the app in the ordinary way. By voice: "is there an
+update?", "check for updates", "restart to update". A copy run from source with `pnpm dev` has nothing
+to update and says so.
+
+The installed app keeps its threads in `~/Library/Application Support/future-of-coding`. A copy run
+from source keeps its own in `future-of-coding-dev` beside it, started from a copy of the installed
+app's, so the two never write over each other.
+
+## Releasing
+
+Bump `version` in `package.json`, commit, tag `vX.Y.Z` and push the tag. The release workflow
+(`.github/workflows/release.yml`) builds the macOS app for Apple silicon and publishes it to GitHub
+Releases, which is where installed copies look. `pnpm build:mac` makes the same build on this machine,
+in `release/`.
+
+Add `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and
+`APPLE_TEAM_ID` as repository secrets to sign and notarize the build. Without them it is signed ad
+hoc: it runs, and finds new versions, but cannot install them, because macOS only lets a properly
+signed app be replaced in place.
+
 ## Layout
 
 | Path | What it holds |
@@ -88,3 +121,11 @@ permission prompts shows a red **Bypass** beside its name when you open it.
 
 `@effect/ui` is not on npm yet and is installed from the Effect team's snapshot builds, so its API
 may change. `node_modules/@effect/ui/AGENTS.md` is the reference to read before changing the UI.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+The skills under `.claude/skills` are from [emilkowalski/skills](https://github.com/emilkowalski/skills)
+and are covered by their own MIT licence, which is in that folder. They guide Claude Code when it
+works on this repository's animations; they are not part of the app.

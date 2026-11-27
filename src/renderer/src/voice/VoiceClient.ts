@@ -7,9 +7,11 @@ import {
   type Question,
   type ThreadStatus,
   type ThreadSummary,
-  type Todo
+  type Todo,
+  type UpdateStatus
 } from "../../../shared/domain.ts"
 import type { AppEvent } from "../../../shared/ipc.ts"
+import { updateLine } from "../format.ts"
 import { Bridge } from "../services/Bridge.ts"
 
 export const VoiceEvent = Schema.Union([
@@ -481,6 +483,33 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       })
 
       // -------------------------------------------------------------------
+      // The app's own updates
+      // -------------------------------------------------------------------
+
+      const appUpdate = Effect.fnUntraced(function*(action: string) {
+        const read = bridge.call("updates.get", undefined).pipe(Effect.catch(() => Effect.succeed(null)))
+        const before = yield* read
+        if (before === null) return { error: "The app could not say where its updates stand." }
+        if (action === "install" && before.state._tag !== "Ready") {
+          return { error: "No update is downloaded and waiting to be installed.", version: before.current, update: updateLine(before) }
+        }
+        if (action === "download" && before.state._tag !== "Available") {
+          return { error: "There is no new version waiting to be downloaded.", version: before.current, update: updateLine(before) }
+        }
+        if (action === "check" || action === "download" || action === "install") {
+          yield* Effect.ignore(bridge.call(`updates.${action}`, undefined))
+          // A check takes a moment to come back with an answer.
+          if (action === "check") yield* Effect.sleep("3 seconds")
+        }
+        const now = (yield* read) ?? before
+        return {
+          version: now.current,
+          update: updateLine(now),
+          ...(action === "install" ? { note: "The app is restarting now. This conversation ends with it." } : {})
+        }
+      })
+
+      // -------------------------------------------------------------------
       // Tools the voice model can call to drive the board
       // -------------------------------------------------------------------
 
@@ -549,6 +578,8 @@ export class VoiceClient extends Context.Service<VoiceClient, {
             return sendToThread(text("thread_id"), text("text"))
           case "stop_thread":
             return stopThread(text("thread_id"))
+          case "app_update":
+            return appUpdate(text("action"))
           case "open_thread":
             return openThread(text("thread_id"))
           case "close_thread":
@@ -676,8 +707,28 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           }
         }
 
+        // A new version is said once, when there is something for the user to decide.
+        let toldUpdate = ""
+        const considerUpdate = (status: UpdateStatus) => {
+          const state = status.state
+          if (state._tag !== "Ready" && state._tag !== "Available") return
+          const key = `${state._tag} ${state.version}`
+          if (key === toldUpdate) return
+          // A version that downloads on its own is worth saying once it is ready, not before.
+          if (state._tag === "Available" && status.mode !== "offer") return
+          toldUpdate = key
+          say(
+            channel,
+            state._tag === "Ready"
+              ? `Board update: version ${state.version} of this app has been downloaded and is ready. Tell the user. ` +
+                "It goes in when the app restarts: restart it with app_update only if they ask you to."
+              : `Board update: version ${state.version} of this app is available. Tell the user and ask whether to download it.`
+          )
+        }
+
         const unsubscribe = window.foc.subscribe((event: AppEvent) => {
           if (event._tag === "Summaries") consider(event.summaries)
+          if (event._tag === "Update") considerUpdate(event.status)
         })
         // What was already finished before the session began is not news, but a
         // thread that is waiting for approval right now is worth saying.

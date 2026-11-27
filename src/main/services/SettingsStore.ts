@@ -2,7 +2,7 @@ import { Context, Effect, Layer, Option, Redacted, Schema } from "effect"
 import { SqlClient } from "effect/sql"
 import { safeStorage } from "electron"
 import * as os from "node:os"
-import { PermissionMode, type Settings, type SettingsPatch } from "../../shared/domain.ts"
+import { PermissionMode, type Settings, type SettingsPatch, UpdateMode } from "../../shared/domain.ts"
 /** What is kept in the `settings` table, one row per field. The OpenAI key is encrypted with the OS keychain. */
 const Stored = Schema.Struct({
   defaultCwd: Schema.String,
@@ -11,7 +11,8 @@ const Stored = Schema.Struct({
   preferSubscription: Schema.Boolean,
   openAiKeyCipher: Schema.NullOr(Schema.String),
   voiceModel: Schema.String,
-  voiceBackendModel: Schema.String
+  voiceBackendModel: Schema.String,
+  updateMode: UpdateMode
 })
 type Stored = typeof Stored.Type
 
@@ -22,7 +23,9 @@ const defaults = (): Stored => ({
   preferSubscription: true,
   openAiKeyCipher: null,
   voiceModel: "gpt-live-1.1",
-  voiceBackendModel: "gpt-5.6-terra"
+  voiceBackendModel: "gpt-5.6-terra",
+  // Have the new version ready, and leave the restart to the person.
+  updateMode: "download"
 })
 
 const toPublic = (stored: Stored): Settings => ({
@@ -32,7 +35,8 @@ const toPublic = (stored: Stored): Settings => ({
   preferSubscription: stored.preferSubscription,
   hasOpenAiKey: stored.openAiKeyCipher !== null || Boolean(process.env.OPENAI_API_KEY),
   voiceModel: stored.voiceModel,
-  voiceBackendModel: stored.voiceBackendModel
+  voiceBackendModel: stored.voiceBackendModel,
+  updateMode: stored.updateMode
 })
 
 const encrypt = (key: string): string | null =>

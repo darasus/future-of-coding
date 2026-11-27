@@ -2,10 +2,12 @@ import { Command, Component, UiSchema } from "@effect/ui"
 import { Html } from "@effect/ui/html"
 import { Effect, Layer, Redacted, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { Account } from "../../../shared/domain.ts"
+import { Account, UpdateMode, UpdateStatus } from "../../../shared/domain.ts"
+import { shortTime, updateLine } from "../format.ts"
 import { GetSettings, SettingsTag } from "../queries.ts"
 import { Bridge } from "../services/Bridge.ts"
 import { Icon } from "./icons.ts"
+import { RunUpdate, SetUpdateMode } from "./updates.ts"
 
 const Secret = Schema.Redacted(Schema.String)
 
@@ -19,6 +21,8 @@ export const SettingsPanelMessage = UiSchema.TaggedEnum({
   UpdatedBackendModel: { value: Schema.String },
   SubmittedVoiceModels: {},
   CompletedSaveSettings: { saved: Schema.Boolean },
+  ClickedUpdate: { action: Schema.Literals(["check", "download", "install"]) },
+  PickedUpdateMode: { mode: UpdateMode },
   ClickedClose: {}
 })
 
@@ -79,9 +83,61 @@ const accountLine = (account: Account | null) => {
   return account.detail === "" ? how : `${how} · ${account.detail}`
 }
 
+/** The three ways an update can arrive, in the order of how much the app does unasked. */
+const updateModes: ReadonlyArray<{ readonly mode: UpdateMode; readonly label: string; readonly note: string }> = [
+  { mode: "offer", label: "Tell me", note: "Says there is a new version and waits for you to download it." },
+  { mode: "download", label: "Download it", note: "Downloads a new version in the background and waits for you to restart." },
+  {
+    mode: "install",
+    label: "Install it",
+    note: "Downloads a new version and restarts into it when the window is out of sight and no thread is working."
+  }
+]
+
+/** Version, where an update stands, the one thing to do about it, and how updates arrive. */
+const updatesGroup = (h: Html.H<typeof SettingsPanelMessage.Type>, status: UpdateStatus) => {
+  const state = status.state
+  const off = state._tag === "Unavailable"
+  const action = state._tag === "Available"
+    ? { action: "download" as const, label: `Download version ${state.version}` }
+    : state._tag === "Ready"
+    ? { action: "install" as const, label: "Restart to update" }
+    : { action: "check" as const, label: "Check for updates" }
+  const busy = state._tag === "Checking" || state._tag === "Downloading" || state._tag === "Installing"
+  return h.section.class("setting-group").children(
+    h.h3("Updates"),
+    h.div.class("setting-row").children(
+      h.div(
+        h.strong(`Version ${status.current}`),
+        h.span.class("muted", state._tag === "Failed" && "is-error").attr("role", "status").children(
+          updateLine(status),
+          status.checkedAt !== null && state._tag === "UpToDate" && ` · checked ${shortTime(status.checkedAt)}`
+        )
+      ),
+      !off && h.button.class("btn").attr("type", "button").disabled(busy)
+        .on("click", SettingsPanelMessage.ClickedUpdate({ action: action.action })).children(action.label)
+    ),
+    status.notes !== null && (state._tag === "Available" || state._tag === "Downloading" || state._tag === "Ready") &&
+      h.p.class("update-notes").children(status.notes),
+    !off && h.div.class("setting-row").children(
+      h.div(
+        h.strong("When there is a new version"),
+        h.span.class("muted").children(updateModes.find((entry) => entry.mode === status.mode)?.note ?? "")
+      ),
+      h.div.class("segmented").attrs({ role: "group", "aria-label": "When there is a new version" }).children(
+        ...updateModes.map((entry) =>
+          h.button.key(entry.mode).class("text-btn", status.mode === entry.mode && "active")
+            .attrs({ type: "button", "aria-pressed": String(status.mode === entry.mode) })
+            .on("click", SettingsPanelMessage.PickedUpdateMode({ mode: entry.mode })).children(entry.label)
+        )
+      )
+    )
+  )
+}
+
 export const SettingsPanelNoDeps = Html.component({
   name: "SettingsPanel",
-  props: Schema.Struct({ account: Schema.NullOr(Account) }),
+  props: Schema.Struct({ account: Schema.NullOr(Account), update: Schema.NullOr(UpdateStatus) }),
   model: Schema.Struct({
     key: Secret,
     voiceModel: Schema.NullOr(Schema.String),
@@ -113,6 +169,8 @@ export const SettingsPanelNoDeps = Html.component({
       ),
     CompletedSaveSettings: ($, { saved }) =>
       $.evolve({ notice: saved ? "Saved" : "", voiceModel: null, backendModel: null }),
+    ClickedUpdate: ($, { action }) => $.run(RunUpdate.make({ action })),
+    PickedUpdateMode: ($, { mode }) => $.run(SetUpdateMode.make({ mode })),
     ClickedClose: ($) => $.emit(SettingsPanelEvents.RequestedClose())
   },
   view: (h, model) =>
@@ -190,6 +248,7 @@ export const SettingsPanelNoDeps = Html.component({
                   .disabled(model.voiceModel === null && model.backendModel === null).children("Save models")
               )
             ),
+            h.props.update !== null && updatesGroup(h, h.props.update),
             h.p.class("muted fine").children(
               "Threads, settings and transcripts are stored on this Mac. Only the agents and live voice talk to the network."
             )
@@ -200,7 +259,9 @@ export const SettingsPanelNoDeps = Html.component({
 
 export const SettingsPanel = SettingsPanelNoDeps.pipe(
   Component.provide([
-    Layer.mergeAll(SaveSettings.layer, PickDefaultFolder.layer).pipe(Layer.provide(Bridge.layer)),
+    Layer.mergeAll(SaveSettings.layer, PickDefaultFolder.layer, RunUpdate.layer, SetUpdateMode.layer).pipe(
+      Layer.provide(Bridge.layer)
+    ),
     GetSettings.layer
   ])
 )

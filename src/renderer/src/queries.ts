@@ -1,6 +1,6 @@
 import { Query } from "@effect/ui"
 import { Effect, Layer, Schema } from "effect"
-import { Account, ArtifactContent, Settings, Thread, ThreadSummary } from "../../shared/domain.ts"
+import { Account, ArtifactContent, Settings, Thread, ThreadSummary, UpdateStatus } from "../../shared/domain.ts"
 import { Bridge, live } from "./services/Bridge.ts"
 
 export const SettingsTag = Query.Tag("settings")
@@ -63,6 +63,24 @@ export class WatchAccount extends Query.StreamService<WatchAccount>()(
           bridge,
           bridge.call("account.get", undefined),
           (event) => event._tag === "Account" ? event.account : undefined
+        )
+    })
+  ).pipe(Layer.provide(Bridge.layer))
+}
+
+/** Where the app stands with updating itself, kept current by the main process. */
+export class WatchUpdate extends Query.StreamService<WatchUpdate>()(
+  "updates/WatchUpdate",
+  { success: UpdateStatus }
+) {
+  static readonly layer = this.toLayer(
+    Effect.gen(function*() {
+      const bridge = yield* Bridge
+      return () =>
+        live(
+          bridge,
+          bridge.call("updates.get", undefined),
+          (event) => event._tag === "Update" ? event.status : undefined
         )
     })
   ).pipe(Layer.provide(Bridge.layer))

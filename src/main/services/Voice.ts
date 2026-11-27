@@ -56,6 +56,10 @@ const backendInstructions = `You operate a board of coding-agent threads through
   set_intelligence and set_permissions act on that thread if thread_id is left out, and list_threads
   marks it on_screen. A request that continues the open thread's work goes to it with message_thread,
   never to a new thread. The result of message_thread names the thread it reached: pass that on.
+- app_update: the app's own updates. "status" says which version is running and whether a newer one is
+  waiting; "check" looks for one now; "download" fetches one that was found; "install" restarts the app
+  into a downloaded one, which ends this conversation. Call "install" only when the user's own words ask
+  to restart or update now, and tell them the app is about to restart.
 - open_thread: show one thread in the app's window, filling it, when the user asks to see, open or
   show it. close_thread goes back to the list of threads. Neither changes the thread itself.
 - delete_threads: remove threads from the board for good, when the user's own words ask for it
@@ -116,6 +120,13 @@ export const voiceTools = [
     ["mode"]
   ),
   fn("list_threads", "List the threads on the board with status and latest activity.", {}, []),
+  fn("app_update", "Check on, download or install a new version of this app.", {
+    action: {
+      type: "string",
+      enum: ["status", "check", "download", "install"],
+      description: "install restarts the app, and only when the user has asked for that."
+    }
+  }, ["action"]),
   fn("open_thread", "Show a thread in the app's window so the user can read it.", {
     thread_id: { type: "string", description: "Leave out when there is only one thread." }
   }, []),

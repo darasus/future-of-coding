@@ -1,0 +1,41 @@
+appId: com.darasus.futureofcoding
+productName: Future of Coding
+copyright: Copyright © 2026 Ilya Daraseliya
+directories:
+  buildResources: build
+  output: release
+# The bundles electron-vite writes, and the production dependencies, which
+# electron-builder adds on its own. Nothing else from the repository ships.
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  # The Agent SDK starts Claude Code as a separate program. A program cannot be
+  # run from inside the archive, so it is kept beside it.
+  - node_modules/@anthropic-ai/claude-agent-sdk-*/**
+mac:
+  category: public.app-category.developer-tools
+  # Apple silicon only: the Agent SDK ships one Claude Code program per
+  # platform, and only the one for the machine that installed it is present.
+  target:
+    - target: dmg
+      arch: [arm64]
+    # The zip is what an installed copy downloads to update itself.
+    - target: zip
+      arch: [arm64]
+  # No spaces in the file names: they are part of the links an update follows.
+  artifactName: ${name}-${version}-${arch}-mac.${ext}
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Live voice is how you talk to the app. Audio goes to the voice service only while a conversation is on.
+  # The release workflow turns this on when the Apple credentials are present.
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+npmRebuild: false
+publish:
+  provider: github
+  owner: darasus
+  repo: future-of-coding

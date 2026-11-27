@@ -209,6 +209,45 @@ export type ArtifactContent = typeof ArtifactContent.Type
 // Settings and account
 // ---------------------------------------------------------------------------
 
+/**
+ * How far the app goes with a new version on its own:
+ * - `offer`: says there is one and waits to be asked
+ * - `download`: downloads it in the background, then waits to be asked
+ * - `install`: downloads it, then restarts into it when nobody is looking
+ */
+export const UpdateMode = Schema.Literals(["offer", "download", "install"])
+export type UpdateMode = typeof UpdateMode.Type
+
+/** Where the app stands with updating itself. */
+export const UpdateState = Schema.Union([
+  /** This copy cannot update, such as one run from source. */
+  Schema.TaggedStruct("Unavailable", { reason: Schema.String }),
+  /** Nothing has been looked for yet. */
+  Schema.TaggedStruct("Idle", {}),
+  Schema.TaggedStruct("Checking", {}),
+  Schema.TaggedStruct("UpToDate", {}),
+  /** There is a newer version, not downloaded yet. */
+  Schema.TaggedStruct("Available", { version: Schema.String }),
+  Schema.TaggedStruct("Downloading", { version: Schema.String, percent: Schema.Number }),
+  /** Downloaded. It goes in when the app restarts. */
+  Schema.TaggedStruct("Ready", { version: Schema.String }),
+  Schema.TaggedStruct("Installing", { version: Schema.String }),
+  Schema.TaggedStruct("Failed", { message: Schema.String })
+])
+export type UpdateState = typeof UpdateState.Type
+
+export const UpdateStatus = Schema.Struct({
+  /** The version that is running. */
+  current: Schema.String,
+  state: UpdateState,
+  mode: UpdateMode,
+  /** When a check last finished, or `null` if none has. */
+  checkedAt: Schema.NullOr(Schema.Number),
+  /** What is new in the version found, as plain text, when the release says. */
+  notes: Schema.NullOr(Schema.String)
+})
+export type UpdateStatus = typeof UpdateStatus.Type
+
 export const Settings = Schema.Struct({
   defaultCwd: Schema.String,
   defaultModel: Schema.NullOr(Schema.String),
@@ -217,7 +256,8 @@ export const Settings = Schema.Struct({
   preferSubscription: Schema.Boolean,
   hasOpenAiKey: Schema.Boolean,
   voiceModel: Schema.String,
-  voiceBackendModel: Schema.String
+  voiceBackendModel: Schema.String,
+  updateMode: UpdateMode
 })
 export type Settings = typeof Settings.Type
 
@@ -229,7 +269,8 @@ export const SettingsPatch = Schema.Struct({
   /** An empty string clears the stored key. */
   openAiKey: Schema.optionalKey(Schema.String),
   voiceModel: Schema.optionalKey(Schema.String),
-  voiceBackendModel: Schema.optionalKey(Schema.String)
+  voiceBackendModel: Schema.optionalKey(Schema.String),
+  updateMode: Schema.optionalKey(UpdateMode)
 })
 export type SettingsPatch = typeof SettingsPatch.Type
 
