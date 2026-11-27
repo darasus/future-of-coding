@@ -6,8 +6,11 @@ and no buttons for starting, steering, approving or stopping a thread. The scree
 open a thread to see its task list, what it is doing now and what it answered, and to preview the
 files it wrote. The individual tool calls are counted and folded away.
 
-Everything runs on this machine in Electron. Threads, transcripts and settings are JSON files in the
-app's data folder (`~/Library/Application Support/future-of-coding` on macOS).
+Everything runs on this machine in Electron. Threads, transcripts and settings are kept in one SQLite
+database, `future-of-coding.db`, in the app's data folder (`~/Library/Application Support/future-of-coding`
+on macOS). It is opened with Node's built-in `node:sqlite` through `@effect/sql-sqlite-node`, so there
+is no native module to compile. The tables are created by migrations in `src/main/services/Database.ts`;
+JSON files left by earlier versions are copied in the first time the database is created.
 
 ## Run it
 
@@ -68,7 +71,7 @@ prompts carries a red **Bypass** marker.
 | Path | What it holds |
 | --- | --- |
 | `src/shared` | Schemas for threads, artifacts and settings, and the typed request contract between the two processes |
-| `src/main` | The Electron main process: Effect services for storage, settings, threads (the Agent SDK), artifacts and voice |
+| `src/main` | The Electron main process: Effect services for the database, settings, threads (the Agent SDK), artifacts and voice |
 | `src/preload` | The sandboxed bridge exposed to the page as `window.foc` |
 | `src/renderer` | The interface, written with `@effect/ui`: stream queries for live data, one component per panel |
 

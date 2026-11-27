@@ -1,5 +1,5 @@
 import type { PermissionResult, PermissionUpdate, SDKMessage } from "@anthropic-ai/claude-agent-sdk"
-import { Context, Effect, Layer, Option, Predicate, Schema, Stream } from "effect"
+import { Context, Effect, Layer, Predicate, Schema, Stream } from "effect"
 import { randomUUID } from "node:crypto"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
@@ -10,14 +10,14 @@ import {
   type InputSource,
   type Item,
   type PermissionMode,
-  Thread,
+  type Thread,
   type ThreadSummary,
   type Todo
 } from "../../shared/domain.ts"
 import { type AgentSession, openSession, sdkMode } from "./agent.ts"
 import { Events } from "./Events.ts"
 import { SettingsStore } from "./SettingsStore.ts"
-import { Storage } from "./Storage.ts"
+import { ThreadStore } from "./ThreadStore.ts"
 
 // The transcript is mutated in place while a turn streams, then sent to the
 // renderer as snapshots.
@@ -229,7 +229,7 @@ export class Threads extends Context.Service<Threads, {
   static readonly layer = Layer.effect(
     Threads,
     Effect.gen(function*() {
-      const storage = yield* Storage
+      const store = yield* ThreadStore
       const settings = yield* SettingsStore
       const events = yield* Events
       const scope = yield* Effect.scope
@@ -290,14 +290,8 @@ export class Threads extends Context.Service<Threads, {
       // Restore what the last run saved
       // ---------------------------------------------------------------------
 
-      const decodeThread = Schema.decodeUnknownOption(Thread)
-      for (const file of yield* storage.list("threads")) {
-        if (!file.endsWith(".json")) continue
-        const raw = yield* storage.readJson(path.join("threads", file))
-        // Threads saved before task lists existed simply have none.
-        const decoded = decodeThread(Predicate.isObject(raw) ? { todos: [], ...raw } : raw)
-        if (Option.isNone(decoded)) continue
-        const thread = structuredClone(decoded.value) as MutableThread
+      for (const saved of yield* store.all) {
+        const thread = structuredClone(saved) as MutableThread
         // A turn that was running when the app closed is gone.
         const interrupted = thread.status === "running" || thread.status === "waiting"
         for (const item of thread.items) {
@@ -308,6 +302,7 @@ export class Threads extends Context.Service<Threads, {
         if (interrupted) {
           thread.status = "error"
           notice(thread, "info", "This turn was interrupted when the app closed. Send a message to continue.")
+          unsaved.add(thread.id)
         }
         threads.set(thread.id, thread)
       }
@@ -333,7 +328,7 @@ export class Threads extends Context.Service<Threads, {
         unsaved.clear()
         for (const id of ids) {
           const thread = threads.get(id)
-          if (thread) yield* storage.writeJson(path.join("threads", `${id}.json`), snapshot(thread))
+          if (thread) yield* store.save(snapshot(thread))
         }
       })
 
@@ -722,7 +717,7 @@ export class Threads extends Context.Service<Threads, {
             lives.delete(id)
             dirty.delete(id)
             unsaved.delete(id)
-            yield* storage.remove(path.join("threads", `${id}.json`))
+            yield* store.remove(id)
             events.publish({ _tag: "ThreadDeleted", id })
             summariesDirty = true
           }),

@@ -9,7 +9,8 @@ import { handlers } from "./handlers.ts"
 import { Artifacts } from "./services/Artifacts.ts"
 import { Events } from "./services/Events.ts"
 import { SettingsStore } from "./services/SettingsStore.ts"
-import { Storage } from "./services/Storage.ts"
+import * as Database from "./services/Database.ts"
+import { ThreadStore } from "./services/ThreadStore.ts"
 import { Threads } from "./services/Threads.ts"
 import { Voice } from "./services/Voice.ts"
 
@@ -121,7 +122,8 @@ const main = async () => {
     Layer.provideMerge(Threads.layer),
     Layer.provideMerge(SettingsStore.layer),
     Layer.provideMerge(Events.layer),
-    Layer.provideMerge(Storage.layer(app.getPath("userData")))
+    Layer.provideMerge(ThreadStore.layer),
+    Layer.provideMerge(Database.layer(app.getPath("userData")))
   )
   const runtime = ManagedRuntime.make(Services)
 

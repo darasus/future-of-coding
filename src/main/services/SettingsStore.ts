@@ -1,12 +1,9 @@
 import { Context, Effect, Layer, Option, Redacted, Schema } from "effect"
+import { SqlClient } from "effect/sql"
 import { safeStorage } from "electron"
 import * as os from "node:os"
 import { PermissionMode, type Settings, type SettingsPatch } from "../../shared/domain.ts"
-import { Storage } from "./Storage.ts"
-
-const FILE = "settings.json"
-
-/** What is written to disk. The OpenAI key is encrypted with the OS keychain. */
+/** What is kept in the `settings` table, one row per field. The OpenAI key is encrypted with the OS keychain. */
 const Stored = Schema.Struct({
   defaultCwd: Schema.String,
   defaultModel: Schema.NullOr(Schema.String),
@@ -58,12 +55,27 @@ export class SettingsStore extends Context.Service<SettingsStore, {
   static readonly layer = Layer.effect(
     SettingsStore,
     Effect.gen(function*() {
-      const storage = yield* Storage
-      const raw = yield* storage.readJson(FILE)
+      const sql = yield* SqlClient.SqlClient
+      const rows = yield* sql<{ readonly key: string; readonly value: string }>`SELECT key, value FROM settings`.pipe(
+        Effect.orDie
+      )
+      const saved: Record<string, unknown> = {}
+      for (const row of rows) {
+        try {
+          saved[row.key] = JSON.parse(row.value)
+        } catch {
+          // A value that cannot be read falls back to its default.
+        }
+      }
       let current: Stored = Option.getOrElse(
-        Schema.decodeUnknownOption(Stored)({ ...defaults(), ...(raw as object | null) }),
+        Schema.decodeUnknownOption(Stored)({ ...defaults(), ...saved }),
         defaults
       )
+      const save = (stored: Stored) =>
+        sql.withTransaction(
+          Effect.forEach(Object.entries(stored), ([key, value]) =>
+            sql`INSERT OR REPLACE INTO settings ${sql.insert({ key, value: JSON.stringify(value) })}`, { discard: true })
+        ).pipe(Effect.catchCause((cause) => Effect.logError("Could not save settings", cause)))
 
       return SettingsStore.of({
         get: Effect.sync(() => toPublic(current)),
@@ -76,7 +88,7 @@ export class SettingsStore extends Context.Service<SettingsStore, {
               ? {}
               : { openAiKeyCipher: openAiKey.trim() === "" ? null : encrypt(openAiKey.trim()) })
           }
-          yield* storage.writeJson(FILE, current)
+          yield* save(current)
           return toPublic(current)
         }),
         openAiKey: Effect.sync(() => {
