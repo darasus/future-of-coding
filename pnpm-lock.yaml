@@ -15,11 +15,11 @@ importers:
         specifier: 4.1.7
         version: 4.1.7(effect@4.1.7)
       '@effect/ui':
-        specifier: https://pkg.pr.new/Effect-TS/ui/@effect/ui@main
-        version: https://pkg.pr.new/Effect-TS/ui/@effect/ui@main(effect@4.1.7)
+        specifier: https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210
+        version: https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210(effect@4.1.7)
       '@effect/ui-kit':
-        specifier: https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@main
-        version: https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@main(@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@main(effect@4.1.7))(effect@4.1.7)
+        specifier: https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@7bff56b
+        version: https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@7bff56b(@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210(effect@4.1.7))(effect@4.1.7)
       effect:
         specifier: ^4.1.7
         version: 4.1.7
@@ -189,15 +189,15 @@ packages:
     peerDependencies:
       effect: ^4.1.7
 
-  '@effect/ui-kit@https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@main':
-    resolution: {integrity: sha512-wLh/vd7hsWs4IELZ/NSrp+TmtEMkw8dKCnJbmYVV/aOv7t3L0ianvE8uTSVaVQV1JCVOhLVxEFw9krQ52Qg/6Q==, tarball: https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@main}
+  '@effect/ui-kit@https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@7bff56b':
+    resolution: {integrity: sha512-wLh/vd7hsWs4IELZ/NSrp+TmtEMkw8dKCnJbmYVV/aOv7t3L0ianvE8uTSVaVQV1JCVOhLVxEFw9krQ52Qg/6Q==, tarball: https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@7bff56b}
     version: 0.0.0
     peerDependencies:
       '@effect/ui': ^0.0.0
       effect: ^4.1.6
 
-  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@main':
-    resolution: {integrity: sha512-uYecYnIGC/Q15cl914C6Zbr1FOT1ahCjy625xwQyDODgNdq/yPEdxr6UuhkaYp83zWsiL4rVJsz8nFHziOCBDw==, tarball: https://pkg.pr.new/Effect-TS/ui/@effect/ui@main}
+  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210':
+    resolution: {integrity: sha512-uYecYnIGC/Q15cl914C6Zbr1FOT1ahCjy625xwQyDODgNdq/yPEdxr6UuhkaYp83zWsiL4rVJsz8nFHziOCBDw==, tarball: https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210}
     version: 0.0.0
     peerDependencies:
       effect: ^4.1.4
@@ -1318,12 +1318,12 @@ snapshots:
     dependencies:
       effect: 4.1.7
 
-  '@effect/ui-kit@https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@main(@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@main(effect@4.1.7))(effect@4.1.7)':
+  '@effect/ui-kit@https://pkg.pr.new/Effect-TS/ui/@effect/ui-kit@7bff56b(@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210(effect@4.1.7))(effect@4.1.7)':
     dependencies:
-      '@effect/ui': https://pkg.pr.new/Effect-TS/ui/@effect/ui@main(effect@4.1.7)
+      '@effect/ui': https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210(effect@4.1.7)
       effect: 4.1.7
 
-  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@main(effect@4.1.7)':
+  '@effect/ui@https://pkg.pr.new/Effect-TS/ui/@effect/ui@1a36210(effect@4.1.7)':
     dependencies:
       effect: 4.1.7
 
