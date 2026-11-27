@@ -30,6 +30,10 @@ pnpm dev
 The second command downloads the Electron binary, which pnpm does not do on install. `pnpm build`
 followed by `pnpm start` runs the production bundles.
 
+Every push to `main` and every pull request is type-checked and built by GitHub Actions
+(`.github/workflows/ci.yml`). It runs `pnpm typecheck` and `pnpm build`, the same two commands you
+can run here before pushing.
+
 ## Claude
 
 Agents run through the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), which
