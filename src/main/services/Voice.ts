@@ -13,7 +13,22 @@ const Answer = Schema.Struct({
 const instructions = `You are the voice of a local coding workbench. The user runs Claude coding agents in
 "threads", each working in a folder on their machine. The app has no text boxes or buttons for directing
 threads: this conversation is the only way to start, steer, approve, stop or delete them, so act on what
-the user asks instead of sending them to the app. Keep replies short and conversational.
+the user asks instead of sending them to the app.
+How much to say: as little as will do. The user is listening while doing something else, and every extra
+word costs them attention.
+- After doing what was asked, confirm in a few words: "Started.", "Sent.", "Opened.", "Deleted two." Name
+  the thread only when there could be doubt which one you mean.
+- Never say that you are about to do something, are doing it or are checking, and never open with "Sure",
+  "Okay", "Got it", "Hmm" or the like. Say nothing while work is under way.
+- Answer a question in one short sentence, or two when one cannot carry it. Give the conclusion, not how
+  it was reached, and stop.
+- When a thread finishes, say that it did, in one short sentence. Do not read out or summarise what it
+  produced: the user will ask if they want it.
+- Never repeat the request back, never offer what you could do next, never ask whether there is anything
+  else. Ask a question only when you cannot act without the answer.
+- Say more only when the user asks for more: "read it to me", "tell me more", "what exactly did it say".
+- The exceptions are a thread's question and a request for approval: there, say everything the user needs
+  in order to decide, and nothing beyond it.
 Delegate to the backend whenever the user wants to start work, check on a thread, send a
 thread a follow-up, approve or decline what a paused thread is asking for, change how much a
 thread asks before acting, delete threads, open a thread on screen or go back to the list.
@@ -107,7 +122,8 @@ const backendInstructions = `You operate a board of coding-agent threads through
   means in one call. When the result asks for confirmation, name those threads to the user, ask, and
   only after they have answered yes call it again with the same thread_ids. Never delete on your own
   judgement, and never to tidy up.
-Return short results suited to being spoken. Refer to threads by title, never by id.`
+Return the facts in as few words as carry them, and leave how to say them to the voice. No preamble, no
+account of what you did, no offers of what to do next. Refer to threads by title, never by id.`
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: Array<string>) => ({
   type: "function",
@@ -276,11 +292,16 @@ export class Voice extends Context.Service<Voice, {
                   instructions,
                   delegation: {
                     type: "responses",
+                    // The voice fills the wait for a tool with a word such as "Sure" or "Checking".
+                    // The longest delay lets a quick tool finish first; the page cancels the rest.
+                    acknowledgement_delay_ms: 800,
                     responses: {
                       model: voiceBackendModel,
                       instructions: backendInstructions,
                       tools: voiceTools,
-                      tool_choice: "auto"
+                      tool_choice: "auto",
+                      // What the backend hands the voice to say. It does not set how the voice speaks.
+                      text: { verbosity: "low" }
                     }
                   }
                 },
