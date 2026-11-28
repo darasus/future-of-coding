@@ -16,6 +16,7 @@ const createTables = Effect.gen(function*() {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       cwd TEXT NOT NULL,
+      worktree TEXT,
       status TEXT NOT NULL,
       model TEXT,
       permission_mode TEXT NOT NULL,
@@ -68,6 +69,29 @@ const createTables = Effect.gen(function*() {
   yield* sql`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`
 })
 
+/** What the assistant was asked to remember (`note`) and how the last conversation ended (`recap`). */
+const createMemories = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`
+    CREATE TABLE memories (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `
+})
+
+/**
+ * A thread's own working copy, as JSON, or NULL. A database made since the
+ * column was added to the first migration already has it.
+ */
+const addWorktreeColumn = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(threads)`
+  if (!columns.some((column) => column.name === "worktree")) yield* sql`ALTER TABLE threads ADD COLUMN worktree TEXT`
+})
+
 const readJson = (file: string) =>
   Effect.promise(() =>
     fs.readFile(file, "utf8").then(
@@ -95,7 +119,7 @@ const importJsonFiles = (root: string) =>
       if (!file.endsWith(".json")) continue
       const raw = yield* readJson(path.join(root, "threads", file))
       // Threads saved before task lists existed simply have none.
-      const thread = decodeThread(Predicate.isObject(raw) ? { todos: [], ...raw } : raw)
+      const thread = decodeThread(Predicate.isObject(raw) ? { todos: [], worktree: null, ...raw } : raw)
       if (Option.isSome(thread)) yield* writeThread(thread.value)
     }
     const settings = yield* readJson(path.join(root, "settings.json"))
@@ -114,7 +138,9 @@ export const layer = (root: string) =>
   SqliteMigrator.layer({
     loader: SqliteMigrator.fromRecord({
       "0001_create_tables": createTables,
-      "0002_import_json_files": importJsonFiles(root)
+      "0002_import_json_files": importJsonFiles(root),
+      "0003_create_memories": createMemories,
+      "0004_add_worktree_column": addWorktreeColumn
     })
   }).pipe(
     Layer.provideMerge(SqliteClient.layer({ filename: path.join(root, DATABASE_FILE) })),

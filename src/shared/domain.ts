@@ -30,6 +30,8 @@ export const UserItem = Schema.TaggedStruct("User", {
   id: Schema.String,
   text: Schema.String,
   source: InputSource,
+  /** True when a picture of the person's screen went to the agent with this message. */
+  screenshot: Schema.optionalKey(Schema.Boolean),
   at: Schema.Number
 })
 
@@ -150,10 +152,45 @@ export const ThreadStats = Schema.Struct({
   durationMs: Schema.Number
 })
 
+/**
+ * A thread's own working copy of a repository: a git worktree on a branch made
+ * for it, so it and whoever else works in the repository cannot collide.
+ */
+export const Worktree = Schema.Struct({
+  /** The repository the copy was made from. */
+  repo: Schema.String,
+  /** Where the copy is. */
+  path: Schema.String,
+  branch: Schema.String,
+  /** The commit the copy started from. */
+  base: Schema.String
+})
+export type Worktree = typeof Worktree.Type
+
+/** What a thread has changed in its repository. */
+export const ThreadChanges = Schema.Struct({
+  /** False when the thread's folder is not in a repository, and nothing else is known. */
+  repository: Schema.Boolean,
+  branch: Schema.NullOr(Schema.String),
+  /** True when the thread works in its own copy, and the changes are everything since it was made. */
+  separate: Schema.Boolean,
+  /** Commits the thread has made in its own copy. */
+  commits: Schema.Number,
+  files: Schema.Array(Schema.Struct({
+    path: Schema.String,
+    added: Schema.Number,
+    deleted: Schema.Number,
+    state: Schema.Literals(["changed", "new"])
+  }))
+})
+export type ThreadChanges = typeof ThreadChanges.Type
+
 const threadFields = {
   id: Schema.String,
   title: Schema.String,
   cwd: Schema.String,
+  /** The thread's own working copy, when it has one. `cwd` is then inside it. */
+  worktree: Schema.NullOr(Worktree),
   status: ThreadStatus,
   model: Schema.NullOr(Schema.String),
   permissionMode: PermissionMode,
@@ -257,7 +294,11 @@ export const Settings = Schema.Struct({
   hasOpenAiKey: Schema.Boolean,
   voiceModel: Schema.String,
   voiceBackendModel: Schema.String,
-  updateMode: UpdateMode
+  updateMode: UpdateMode,
+  /** The key combination that starts and stops voice from any app, as Electron writes it, or `null` for none. */
+  voiceShortcut: Schema.NullOr(Schema.String),
+  /** False when the combination could not be taken, usually because another app has it. */
+  voiceShortcutActive: Schema.Boolean
 })
 export type Settings = typeof Settings.Type
 
@@ -270,9 +311,30 @@ export const SettingsPatch = Schema.Struct({
   openAiKey: Schema.optionalKey(Schema.String),
   voiceModel: Schema.optionalKey(Schema.String),
   voiceBackendModel: Schema.optionalKey(Schema.String),
-  updateMode: Schema.optionalKey(UpdateMode)
+  updateMode: Schema.optionalKey(UpdateMode),
+  voiceShortcut: Schema.optionalKey(Schema.NullOr(Schema.String))
 })
 export type SettingsPatch = typeof SettingsPatch.Type
+
+/** A folder on this machine that holds a project: one with a repository or a manifest in it. */
+export const Project = Schema.Struct({
+  name: Schema.String,
+  path: Schema.String,
+  modifiedAt: Schema.Number
+})
+export type Project = typeof Project.Type
+
+/** Something the person asked the assistant to remember, in their words or close to them. */
+export const MemoryNote = Schema.Struct({
+  id: Schema.String,
+  text: Schema.String,
+  createdAt: Schema.Number
+})
+export type MemoryNote = typeof MemoryNote.Type
+
+/** The last few turns of the previous conversation, kept so the next one can pick up from it. */
+export const Recap = Schema.Struct({ text: Schema.String, at: Schema.Number })
+export type Recap = typeof Recap.Type
 
 export const Account = Schema.Struct({
   state: Schema.Literals(["unknown", "subscription", "apiKey", "signedOut"]),

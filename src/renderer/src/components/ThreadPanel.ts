@@ -310,7 +310,10 @@ const tasksView = (h: H, item: ItemOf<"Tasks">) => {
 
 const turnView = (h: H, turn: Turn, running: boolean) =>
   h.div.key(turn.key).class("turn-group").children(
-    turn.user !== null && h.div.key(turn.user.id).class("asked").children(turn.user.text),
+    turn.user !== null && h.div.key(turn.user.id).class("asked").children(
+      turn.user.text,
+      turn.user.screenshot === true && h.span.class("asked-with").children("with a picture of your screen")
+    ),
     ...turn.tasks.map((item) => tasksView(h, item)),
     turn.steps.some((item) => item._tag === "Tool") &&
       h.details.key("steps").class("steps").children(
@@ -413,7 +416,8 @@ const threadView = ThreadPanelDef.fragment((h, model: ThreadPanelModel, thread: 
       h.div.class("panel-title").children(
         h.h2(thread.title),
         h.p.class("panel-sub").children(
-          folderName(thread.cwd),
+          folderName(thread.worktree?.repo ?? thread.cwd),
+          thread.worktree !== null && ` · ${thread.worktree.branch}`,
           thread.model !== null && ` · ${modelLabel(thread.model)}`,
           thread.permissionMode === "bypassPermissions" && " · ",
           thread.permissionMode === "bypassPermissions" &&

@@ -27,7 +27,21 @@ thread is open, take what they say as being about that thread unless it clearly 
 question about it from the thread itself. A request for more work on it, or a question its own agent is
 better placed to answer than you are, goes to that same thread as a follow-up: do not start a new thread
 for it. Start a new thread only for a new, unrelated task, or when they ask for a new thread. Whenever
-you pass something on, say in a few words which thread it went to.`
+you pass something on, say in a few words which thread it went to.
+At the start of each conversation you are told, silently, the names of the user's projects, what they have
+asked you to remember, and how your last conversation with them ended. Use all three without saying you
+were told. When the user names a project, pass its name on exactly as it is written in that list, so the
+work starts in the right folder; if you cannot tell which project they mean, ask.
+You cannot see the user's screen, but a thread can be shown it. When they refer to what is in front of
+them ("look at this error", "what is this on my screen", "fix what I'm looking at"), delegate the request
+and say it should include their screen. Do not ask them to describe it.
+When the user asks what a thread changed, or for its diff, delegate that; the answer is a list of files
+to summarise, never to read out line by line. Committing, pushing, opening a pull request and merging a
+thread's branch are follow-ups for that thread: delegate them as a message to it.
+When the user asks you to remember something, or states a lasting preference or fact about how they work
+("always use pnpm", "from now on…", "my notes are in the vault folder"), delegate it to be remembered and
+confirm in a few words. When they ask you to forget something, delegate that. Never store passwords, keys
+or anything they did not mean to keep.`
 
 const backendInstructions = `You operate a board of coding-agent threads through tools.
 - start_thread: begin new work. Write the prompt as a complete, self-contained task for a coding agent.
@@ -38,6 +52,28 @@ const backendInstructions = `You operate a board of coding-agent threads through
   Pass intelligence when the user says how demanding the task is: low for simple or mechanical work
   ("this is easy", "little intelligence"), medium for everyday coding, high for hard problems, best
   when they ask for the best or smartest model. Leave it out when they say nothing about it.
+  folder may also be a project's name, such as "billing-api": it is matched against the user's projects.
+  If the result says there is no such folder and lists close projects, ask the user which they mean.
+  Set include_screen when the task is about what the user is looking at: a picture of their screen goes
+  to the thread with the task. If the result says the app is not allowed to see the screen, tell the
+  user what it says to do.
+  Set separate_copy when the user asks for the work to be kept apart ("on its own branch", "in a separate
+  copy", "don't touch my checkout"). The app also does this by itself when another thread is already
+  working in the same repository. Whenever the result has separate_copy, tell the user in a few words
+  that the thread is working on its own branch, and which.
+- thread_changes: what a thread has changed in its repository: the files, how many lines, and for a
+  thread with its own copy the branch and how many commits. Summarise it in a sentence or two.
+- To commit, push, open a pull request or merge a thread's branch, send that thread a follow-up with
+  message_thread: its agent does it. Only when the user asks.
+- message_thread takes include_screen too, for a follow-up about what the user is looking at.
+- find_project: find which folder a project lives in, from its name or part of it. Use it when the user
+  asks where something is or which projects they have, or before start_thread when you are unsure which
+  project they mean. With an empty query it lists the most recently changed projects. Never start a
+  thread just to look for a project.
+- remember: keep something the user asked you to remember, or a lasting preference they stated, as one
+  short sentence in their words. It is told to you again at the start of every later conversation and
+  given to every thread as a standing instruction. Only what the user actually said; never secrets.
+- forget: drop something remembered, when the user asks. Pass their words for it.
 - set_intelligence: change the model an existing thread runs on, the same way, when the user asks.
 - stop_thread: stop a thread that is working, when the user asks.
 - list_threads: see every thread with its status and latest activity.
@@ -87,14 +123,34 @@ export const voiceTools = [
     title: { type: "string", description: "Two to six words naming the task, as the thread's title on screen." },
     folder: {
       type: "string",
-      description: "Where to work: an absolute path, a path under ~, or a folder inside the user's default folder."
+      description: "Where to work: a project's name, an absolute path, a path under ~, or a folder inside the user's default folder."
     },
     intelligence: {
       type: "string",
       enum: ["low", "medium", "high", "best"],
       description: "How much intelligence the task needs. Only when the user says so."
+    },
+    include_screen: {
+      type: "boolean",
+      description: "Send a picture of the user's screen with the task. Only when the task is about what they are looking at."
+    },
+    separate_copy: {
+      type: "boolean",
+      description: "Work on a new branch in a copy of the repository made for this thread. Only when the user asks for that."
     }
   }, ["prompt", "title"]),
+  fn("thread_changes", "See what a thread has changed in its repository.", {
+    thread_id: { type: "string", description: "Leave out for the thread the user has open on screen." }
+  }, []),
+  fn("find_project", "Find the folder a project lives in by its name, or list recent projects.", {
+    query: { type: "string", description: "The project's name or part of it, as the user said it. Empty for the most recent projects." }
+  }, ["query"]),
+  fn("remember", "Remember something for later conversations, once the user has asked for that or stated a lasting preference.", {
+    text: { type: "string", description: "One short sentence, in the user's words or close to them." }
+  }, ["text"]),
+  fn("forget", "Forget something that was remembered, once the user has asked for that.", {
+    text: { type: "string", description: "The user's words for what to forget." }
+  }, ["text"]),
   fn("set_intelligence", "Change how much intelligence an existing thread runs with.", {
     level: { type: "string", enum: ["low", "medium", "high", "best"] },
     thread_id: { type: "string", description: "Leave out when only one thread is working or waiting." }
@@ -152,7 +208,11 @@ export const voiceTools = [
   }, []),
   fn("message_thread", "Send a follow-up message to an existing thread, which continues with everything it already knows.", {
     thread_id: { type: "string", description: "Leave out for the thread the user has open on screen." },
-    text: { type: "string" }
+    text: { type: "string" },
+    include_screen: {
+      type: "boolean",
+      description: "Send a picture of the user's screen with the message. Only when it is about what they are looking at."
+    }
   }, ["text"]),
   fn(
     "answer_question",

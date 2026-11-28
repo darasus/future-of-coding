@@ -62,6 +62,9 @@ What you can say:
 | Say | What happens |
 | --- | --- |
 | "Start a thread that…" (optionally "in the folder…") | A new thread starts in that folder, or your default one. The assistant gives it a title of a few words, which is how it is listed and referred to afterwards |
+| "…in the billing project" | The folder is found from the project's name. The assistant knows the projects in your default folder and the usual places (`~/projects`, `~/code` and so on) and asks when two fit |
+| "Look at this error on my screen and fix it" | A picture of the screen your pointer is on goes to the thread with the task. macOS asks once for permission to record the screen |
+| "…on its own branch" / "…in a separate copy" | The thread works in a git worktree made for it, on a new `fai/…` branch. This also happens by itself when another thread is already working in the same repository |
 | "…this one is simple" / "…this needs the best model" | The thread runs on a model to match: Haiku for low, Sonnet for medium, Opus for high, Fable for best. Unsaid, it uses the Claude Code default |
 | "Tell that thread to…" | A follow-up is sent to an existing thread |
 | "Allow it" / "Decline it" | Answers what a paused thread is asking for, once it has been read to you |
@@ -69,6 +72,9 @@ What you can say:
 | "Stop asking, bypass permissions" | That thread, or every thread in the conversation, runs without asking |
 | "Ask me again" | Turns permission prompts back on |
 | "Stop that thread" | Interrupts a thread that is working |
+| "What did it change?" | The files a thread changed and how many lines. For a thread with its own copy, everything since the copy was made |
+| "Commit that" / "Open a pull request" / "Merge it" | Passed to the thread as a follow-up; its agent does it |
+| "Remember that I always use pnpm" / "Forget that" | Kept between conversations, told to the assistant each time you start talking, and given to every thread as a standing instruction. Settings lists what is remembered |
 | "Open the thread about…" / "Go back to the list" | Shows that thread in the window, or returns to the list |
 | "Delete that thread" / "Delete the finished ones" | Removes threads for good. One idle thread goes at once; several, or one still working, are read back to you first and go only after you say yes. Files they wrote stay on disk |
 
@@ -76,6 +82,26 @@ The assistant also speaks up on its own when a thread needs approval, has a ques
 or fails. A thread that has asked something waits until you answer; the assistant cannot answer for
 you. Decisions made by voice leave a line in the thread's transcript, and a thread running without
 permission prompts shows a red **Bypass** beside its name when you open it.
+
+## When the window is not in front
+
+**Talk from any app.** Control+Shift+Space starts and stops a conversation without bringing the window
+forward. A rising tone says it is listening and a falling one that it stopped. Settings offers two other
+combinations and Off, and says so if another app already has the one you picked.
+
+**Notifications.** When a thread finishes, fails, has a question or needs approval, and neither a
+conversation nor the window is there to tell you, macOS shows a notification; clicking it opens the
+thread. The Dock icon counts the threads waiting on an approval or an answer.
+
+**Picking up where you left off.** The last few turns of a conversation are kept, and the next one within
+twelve hours is told how it ended.
+
+## Working copies
+
+A thread that gets its own copy of a repository works in `worktrees/` inside the app's data folder. Changes
+in the original folder that were not committed are not in the copy, and the thread's work stays on its
+branch until it is merged. Deleting a thread removes its copy and branch only if nothing was done there;
+a copy with a commit or a changed file is left on disk.
 
 ## Updates
 

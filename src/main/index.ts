@@ -5,8 +5,12 @@ import * as path from "node:path"
 import { pathToFileURL } from "node:url"
 import { PREVIEW_SCHEME } from "../shared/domain.ts"
 import { EVENT_CHANNEL, RPC_CHANNEL, type RpcReply, Rpcs } from "../shared/ipc.ts"
-import { handlers } from "./handlers.ts"
+import { handlers, type Services as HandlerServices } from "./handlers.ts"
 import { Artifacts } from "./services/Artifacts.ts"
+import { Attention } from "./services/Attention.ts"
+import { Memory } from "./services/Memory.ts"
+import { Projects } from "./services/Projects.ts"
+import { Shortcut } from "./services/Shortcut.ts"
 import { Events } from "./services/Events.ts"
 import { SettingsStore } from "./services/SettingsStore.ts"
 import * as Database from "./services/Database.ts"
@@ -129,7 +133,10 @@ const createWindow = () => {
       preload: path.join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
       sandbox: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Voice can be started from another app, with this window behind it or
+      // hidden. It has to keep its timers running at full speed there.
+      backgroundThrottling: false
     }
   })
   window.once("ready-to-show", () => window.show())
@@ -185,9 +192,11 @@ const main = async () => {
     permission === "media" && contents !== null && isAppUrl(contents.getURL())
   )
 
-  const Services = Layer.mergeAll(Artifacts.layer, Voice.layer, Updates.layer).pipe(
+  const Services = Layer.mergeAll(Artifacts.layer, Voice.layer, Updates.layer, Attention.layer, Shortcut.layer).pipe(
     Layer.provideMerge(Threads.layer),
+    Layer.provideMerge(Projects.layer),
     Layer.provideMerge(SettingsStore.layer),
+    Layer.provideMerge(Memory.layer),
     Layer.provideMerge(Events.layer),
     Layer.provideMerge(ThreadStore.layer),
     Layer.provideMerge(Database.layer(app.getPath("userData")))
@@ -201,7 +210,7 @@ const main = async () => {
     const handler = handlers[name as keyof typeof handlers] as (payload: unknown) => Effect.Effect<
       unknown,
       { readonly message: string },
-      Threads | Artifacts | SettingsStore | Voice | Updates
+      HandlerServices
     >
     return runtime.runPromise(
       Schema.decodeUnknownEffect(rpc.payload as Schema.Codec<unknown>)(payload).pipe(
@@ -227,9 +236,20 @@ const main = async () => {
       Stream.fromPubSub(events.hub).pipe(
         Stream.runForEach((event) =>
           Effect.sync(() => {
-            for (const window of BrowserWindow.getAllWindows()) {
-              if (!window.isDestroyed()) window.webContents.send(EVENT_CHANNEL, event)
+            const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed())
+            // On a Mac the app stays open with its window closed. The shortcut
+            // and a clicked notification both need a window to act in.
+            if (windows.length === 0 && (event._tag === "ToggleVoice" || event._tag === "Reveal")) {
+              const window = createWindow()
+              window.webContents.once("did-finish-load", () => {
+                // The page needs a moment after loading before it is listening.
+                setTimeout(() => {
+                  if (!window.isDestroyed()) window.webContents.send(EVENT_CHANNEL, event)
+                }, 800)
+              })
+              return
             }
+            for (const window of windows) window.webContents.send(EVENT_CHANNEL, event)
           })
         )
       )

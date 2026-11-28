@@ -12,7 +12,8 @@ const Stored = Schema.Struct({
   openAiKeyCipher: Schema.NullOr(Schema.String),
   voiceModel: Schema.String,
   voiceBackendModel: Schema.String,
-  updateMode: UpdateMode
+  updateMode: UpdateMode,
+  voiceShortcut: Schema.NullOr(Schema.String)
 })
 type Stored = typeof Stored.Type
 
@@ -25,10 +26,13 @@ const defaults = (): Stored => ({
   voiceModel: "gpt-live-1.1",
   voiceBackendModel: "gpt-5.6-terra",
   // Have the new version ready, and leave the restart to the person.
-  updateMode: "download"
+  updateMode: "download",
+  // Free on a stock Mac. Control+Space and Control+Option+Space switch keyboards, and
+  // Option+Space and Command+Shift+Space belong to launchers and password managers.
+  voiceShortcut: "Control+Shift+Space"
 })
 
-const toPublic = (stored: Stored): Settings => ({
+const toPublic = (stored: Stored, shortcutActive: boolean): Settings => ({
   defaultCwd: stored.defaultCwd,
   defaultModel: stored.defaultModel,
   defaultPermissionMode: stored.defaultPermissionMode,
@@ -36,7 +40,9 @@ const toPublic = (stored: Stored): Settings => ({
   hasOpenAiKey: stored.openAiKeyCipher !== null || Boolean(process.env.OPENAI_API_KEY),
   voiceModel: stored.voiceModel,
   voiceBackendModel: stored.voiceBackendModel,
-  updateMode: stored.updateMode
+  updateMode: stored.updateMode,
+  voiceShortcut: stored.voiceShortcut,
+  voiceShortcutActive: shortcutActive
 })
 
 const encrypt = (key: string): string | null =>
@@ -53,6 +59,8 @@ const decrypt = (cipher: string): string | null => {
 export class SettingsStore extends Context.Service<SettingsStore, {
   readonly get: Effect.Effect<Settings>
   update(patch: SettingsPatch): Effect.Effect<Settings>
+  /** Records whether the voice shortcut could be registered, for settings to show. */
+  setShortcutActive(active: boolean): Effect.Effect<void>
   /** The stored key, or `OPENAI_API_KEY` from the environment. */
   readonly openAiKey: Effect.Effect<Option.Option<Redacted.Redacted<string>>>
 }>()("fai/main/SettingsStore") {
@@ -75,6 +83,7 @@ export class SettingsStore extends Context.Service<SettingsStore, {
         Schema.decodeUnknownOption(Stored)({ ...defaults(), ...saved }),
         defaults
       )
+      let shortcutActive = false
       const save = (stored: Stored) =>
         sql.withTransaction(
           Effect.forEach(Object.entries(stored), ([key, value]) =>
@@ -82,7 +91,7 @@ export class SettingsStore extends Context.Service<SettingsStore, {
         ).pipe(Effect.catchCause((cause) => Effect.logError("Could not save settings", cause)))
 
       return SettingsStore.of({
-        get: Effect.sync(() => toPublic(current)),
+        get: Effect.sync(() => toPublic(current, shortcutActive)),
         update: Effect.fn("SettingsStore.update")(function*(patch) {
           const { openAiKey, ...rest } = patch
           current = {
@@ -93,8 +102,12 @@ export class SettingsStore extends Context.Service<SettingsStore, {
               : { openAiKeyCipher: openAiKey.trim() === "" ? null : encrypt(openAiKey.trim()) })
           }
           yield* save(current)
-          return toPublic(current)
+          return toPublic(current, shortcutActive)
         }),
+        setShortcutActive: (active) =>
+          Effect.sync(() => {
+            shortcutActive = active
+          }),
         openAiKey: Effect.sync(() => {
           const stored = current.openAiKeyCipher === null ? null : decrypt(current.openAiKeyCipher)
           const key = stored ?? process.env.OPENAI_API_KEY

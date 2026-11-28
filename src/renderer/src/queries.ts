@@ -1,6 +1,6 @@
 import { Query } from "@effect/ui"
 import { Effect, Layer, Schema } from "effect"
-import { Account, ArtifactContent, Settings, Thread, ThreadSummary, UpdateStatus } from "../../shared/domain.ts"
+import { Account, ArtifactContent, MemoryNote, Settings, Thread, ThreadSummary, UpdateStatus } from "../../shared/domain.ts"
 import { Bridge, live } from "./services/Bridge.ts"
 
 export const SettingsTag = Query.Tag("settings")
@@ -81,6 +81,24 @@ export class WatchUpdate extends Query.StreamService<WatchUpdate>()(
           bridge,
           bridge.call("updates.get", undefined),
           (event) => event._tag === "Update" ? event.status : undefined
+        )
+    })
+  ).pipe(Layer.provide(Bridge.layer))
+}
+
+/** What the assistant has been asked to remember, kept current as it is told more or told to forget. */
+export class WatchMemories extends Query.StreamService<WatchMemories>()(
+  "memory/WatchMemories",
+  { success: Schema.Array(MemoryNote) }
+) {
+  static readonly layer = this.toLayer(
+    Effect.gen(function*() {
+      const bridge = yield* Bridge
+      return () =>
+        live(
+          bridge,
+          bridge.call("memory.list", undefined),
+          (event) => event._tag === "Memories" ? event.memories : undefined
         )
     })
   ).pipe(Layer.provide(Bridge.layer))

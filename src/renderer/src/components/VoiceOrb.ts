@@ -1,6 +1,7 @@
 import { Command, Component, Mount, Subscription, UiSchema } from "@effect/ui"
 import { Html, HtmlSubscription } from "@effect/ui/html"
 import { Effect, Layer, Schema, Stream } from "effect"
+import { appEvent } from "../services/Bridge.ts"
 import { VoiceClient, type VoiceEvent } from "../voice/VoiceClient.ts"
 import { Icon } from "./icons.ts"
 import { DrawVoice } from "./VoiceMatrix.ts"
@@ -82,7 +83,11 @@ const toolLabels: Record<string, string> = {
   set_intelligence: "Choosing a model",
   open_thread: "Opening a thread",
   close_thread: "Back to the list",
-  delete_threads: "Deleting threads"
+  delete_threads: "Deleting threads",
+  find_project: "Finding the project",
+  remember: "Remembering",
+  forget: "Forgetting",
+  thread_changes: "Looking at the changes"
 }
 
 /**
@@ -170,6 +175,8 @@ export const VoiceOrbNoDeps = VoiceOrbDef.make({
           : VoiceOrbMessage.PressedSpace(),
       { preventDefault: true }
     ),
+    // The shortcut that works from any app does what Space does here.
+    Subscription.make("shortcut", appEvent("ToggleVoice").pipe(Stream.map(() => VoiceOrbMessage.PressedSpace()))),
     // The session's events are heard for as long as a session is wanted.
     model.state !== "off" &&
     Subscription.make(

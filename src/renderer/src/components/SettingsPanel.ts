@@ -2,9 +2,9 @@ import { Command, Component, UiSchema } from "@effect/ui"
 import { Html } from "@effect/ui/html"
 import { Effect, Layer, Redacted, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { Account, UpdateMode, UpdateStatus } from "../../../shared/domain.ts"
+import { Account, type MemoryNote, type Settings, UpdateMode, UpdateStatus } from "../../../shared/domain.ts"
 import { shortTime, updateLine } from "../format.ts"
-import { GetSettings, SettingsTag } from "../queries.ts"
+import { GetSettings, SettingsTag, WatchMemories } from "../queries.ts"
 import { Bridge } from "../services/Bridge.ts"
 import { Icon } from "./icons.ts"
 import { RunUpdate, SetUpdateMode } from "./updates.ts"
@@ -23,6 +23,8 @@ export const SettingsPanelMessage = UiSchema.TaggedEnum({
   CompletedSaveSettings: { saved: Schema.Boolean },
   ClickedUpdate: { action: Schema.Literals(["check", "download", "install"]) },
   PickedUpdateMode: { mode: UpdateMode },
+  PickedShortcut: { shortcut: Schema.NullOr(Schema.String) },
+  ClickedForget: { id: Schema.String },
   ClickedClose: {}
 })
 
@@ -35,7 +37,8 @@ export class SaveSettings extends Command.Service<SaveSettings>()(
       preferSubscription: Schema.optionalKey(Schema.Boolean),
       openAiKey: Schema.optionalKey(Secret),
       voiceModel: Schema.optionalKey(Schema.String),
-      voiceBackendModel: Schema.optionalKey(Schema.String)
+      voiceBackendModel: Schema.optionalKey(Schema.String),
+      voiceShortcut: Schema.optionalKey(Schema.NullOr(Schema.String))
     },
     success: SettingsPanelMessage,
     invalidates: () => [SettingsTag]
@@ -75,6 +78,38 @@ export class PickDefaultFolder extends Command.Service<PickDefaultFolder>()(
     })
   )
 }
+
+/** Drops one thing the assistant was asked to remember. The list follows by itself. */
+export class ForgetMemory extends Command.Service<ForgetMemory>()(
+  "memory/ForgetMemory",
+  { args: { id: Schema.String } }
+) {
+  static readonly layer = this.toLayer(
+    Effect.gen(function*() {
+      const bridge = yield* Bridge
+      return ({ id }) => Effect.ignore(bridge.call("memory.remove", { id }))
+    })
+  )
+}
+
+/** What the assistant carries between conversations, each with a way to drop it. */
+const memoryGroup = (h: Html.H<typeof SettingsPanelMessage.Type>, notes: ReadonlyArray<MemoryNote>) =>
+  h.section.class("setting-group").children(
+    h.h3("Memory"),
+    notes.length === 0
+      ? h.p.class("muted").children(
+        "Nothing yet. Say “remember that…” while talking, and it is told to the assistant and to every thread from then on."
+      )
+      : h.ul.class("memory-list").attr("aria-label", "Remembered").children(
+        ...notes.map((note) =>
+          h.li.key(note.id).children(
+            h.span(note.text),
+            h.button.class("icon-btn").attrs({ type: "button", title: "Forget this", "aria-label": `Forget: ${note.text}` })
+              .on("click", SettingsPanelMessage.ClickedForget({ id: note.id })).children(Icon(h, "close"))
+          )
+        )
+      )
+  )
 
 const accountLine = (account: Account | null) => {
   if (account === null || account.state === "unknown") return "Checking which Claude account is signed in"
@@ -135,6 +170,37 @@ const updatesGroup = (h: Html.H<typeof SettingsPanelMessage.Type>, status: Updat
   )
 }
 
+/** The combinations offered for talking from any app, as Electron names them and as a Mac shows them. */
+const shortcuts: ReadonlyArray<{ readonly keys: string | null; readonly label: string }> = [
+  { keys: null, label: "Off" },
+  { keys: "Control+Shift+Space", label: "⌃⇧Space" },
+  { keys: "Alt+Space", label: "⌥Space" },
+  { keys: "Control+Alt+Command+Space", label: "⌃⌥⌘Space" }
+]
+
+const shortcutRow = (h: Html.H<typeof SettingsPanelMessage.Type>, settings: Settings) => {
+  const chosen = shortcuts.find((entry) => entry.keys === settings.voiceShortcut)
+  return h.div.class("setting-row").children(
+    h.div(
+      h.strong("Talk from any app"),
+      h.span.class("muted", settings.voiceShortcut !== null && !settings.voiceShortcutActive && "is-error").children(
+        settings.voiceShortcut === null
+          ? "Off. Space still works while this window is in front."
+          : settings.voiceShortcutActive
+          ? `Press ${chosen?.label ?? settings.voiceShortcut} in any app to start or stop talking. A tone tells you when it is listening.`
+          : "Another app is using this combination. Pick a different one."
+      )
+    ),
+    h.div.class("segmented").attrs({ role: "group", "aria-label": "Talk from any app" }).children(
+      ...shortcuts.map((entry) =>
+        h.button.key(entry.label).class("text-btn", settings.voiceShortcut === entry.keys && "active")
+          .attrs({ type: "button", "aria-pressed": String(settings.voiceShortcut === entry.keys) })
+          .on("click", SettingsPanelMessage.PickedShortcut({ shortcut: entry.keys })).children(entry.label)
+      )
+    )
+  )
+}
+
 export const SettingsPanelNoDeps = Html.component({
   name: "SettingsPanel",
   props: Schema.Struct({ account: Schema.NullOr(Account), update: Schema.NullOr(UpdateStatus) }),
@@ -146,7 +212,10 @@ export const SettingsPanelNoDeps = Html.component({
   }),
   message: SettingsPanelMessage,
   events: SettingsPanelEvents,
-  queries: { settings: { query: GetSettings, args: () => ({}) } }
+  queries: {
+    settings: { query: GetSettings, args: () => ({}) },
+    memories: { query: WatchMemories, args: () => ({}) }
+  }
 }).make({
   init: () => ({ key: Redacted.make(""), voiceModel: null, backendModel: null, notice: "" }),
   update: {
@@ -171,6 +240,8 @@ export const SettingsPanelNoDeps = Html.component({
       $.evolve({ notice: saved ? "Saved" : "", voiceModel: null, backendModel: null }),
     ClickedUpdate: ($, { action }) => $.run(RunUpdate.make({ action })),
     PickedUpdateMode: ($, { mode }) => $.run(SetUpdateMode.make({ mode })),
+    PickedShortcut: ($, { shortcut }) => $.run(SaveSettings.make({ voiceShortcut: shortcut })),
+    ClickedForget: ($, { id }) => $.run(ForgetMemory.make({ id })),
     ClickedClose: ($) => $.emit(SettingsPanelEvents.RequestedClose())
   },
   view: (h, model) =>
@@ -246,8 +317,10 @@ export const SettingsPanelNoDeps = Html.component({
                 ),
                 h.button.class("btn").attr("type", "submit")
                   .disabled(model.voiceModel === null && model.backendModel === null).children("Save models")
-              )
+              ),
+              shortcutRow(h, settings)
             ),
+            memoryGroup(h, AsyncResult.isSuccess(h.queries.memories) ? h.queries.memories.value : []),
             h.props.update !== null && updatesGroup(h, h.props.update),
             h.p.class("muted fine").children(
               "Threads, settings and transcripts are stored on this Mac. Only the agents and live voice talk to the network."
@@ -259,9 +332,14 @@ export const SettingsPanelNoDeps = Html.component({
 
 export const SettingsPanel = SettingsPanelNoDeps.pipe(
   Component.provide([
-    Layer.mergeAll(SaveSettings.layer, PickDefaultFolder.layer, RunUpdate.layer, SetUpdateMode.layer).pipe(
-      Layer.provide(Bridge.layer)
-    ),
-    GetSettings.layer
+    Layer.mergeAll(
+      SaveSettings.layer,
+      PickDefaultFolder.layer,
+      RunUpdate.layer,
+      SetUpdateMode.layer,
+      ForgetMemory.layer
+    ).pipe(Layer.provide(Bridge.layer)),
+    GetSettings.layer,
+    WatchMemories.layer
   ])
 )

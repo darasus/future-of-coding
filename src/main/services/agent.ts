@@ -9,6 +9,7 @@ import {
 import { createRequire } from "node:module"
 import * as path from "node:path"
 import type { PermissionMode } from "../../shared/domain.ts"
+import type { Shot } from "./screen.ts"
 
 /**
  * Where the Claude Code program is in an installed copy of the app, or
@@ -41,10 +42,19 @@ class InputQueue {
   private waiting: ((result: IteratorResult<SDKUserMessage>) => void) | null = null
   private ended = false
 
-  push(text: string): void {
+  /** Adds a message, with a picture of the screen in front of it when there is one. */
+  push(text: string, shot: Shot | null = null): void {
     const message: SDKUserMessage = {
       type: "user",
-      message: { role: "user", content: text },
+      message: {
+        role: "user",
+        content: shot === null
+          ? text
+          : [
+            { type: "image", source: { type: "base64", media_type: shot.mediaType, data: shot.data } },
+            { type: "text", text }
+          ]
+      },
       parent_tool_use_id: null,
       origin: { kind: "human" }
     }
@@ -101,6 +111,8 @@ export interface AgentSessionOptions {
   readonly resume: string | null
   readonly preferSubscription: boolean
   readonly canUseTool: CanUseTool
+  /** What this session should know on top of the usual briefing, or an empty string. */
+  readonly briefing: string
 }
 
 /**
@@ -159,7 +171,7 @@ export const openSession = (options: AgentSessionOptions): AgentSession => {
     permissionMode: sdkMode(options.permissionMode),
     includePartialMessages: true,
     canUseTool: options.canUseTool,
-    systemPrompt: { type: "preset", preset: "claude_code", append: `${taskListBriefing}\n\n${questionBriefing}` },
+    systemPrompt: { type: "preset", preset: "claude_code", append: [taskListBriefing, questionBriefing, options.briefing].filter((part) => part !== "").join("\n\n") },
     // The task tools are only offered when asked for. They are bookkeeping, so they never prompt.
     // AskUserQuestion is left out on purpose: it has to reach `canUseTool`, which is where it is answered.
     allowedTools: ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"],
