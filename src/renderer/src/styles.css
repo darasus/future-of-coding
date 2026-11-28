@@ -754,6 +754,14 @@ button.update-pill:active {
   overflow-wrap: anywhere;
 }
 
+/* What else went to the agent with a message, under the words. */
+.asked-with {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
 .prose {
   min-width: 0;
   overflow-wrap: anywhere;

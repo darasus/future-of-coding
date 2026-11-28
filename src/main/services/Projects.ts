@@ -84,25 +84,26 @@ const wordFit = (said: string, word: string) => {
 
 /**
  * How well what someone said fits a project's name, from 0 to 1. Every word
- * they said has to find a place in the name; a name with words to spare
- * scores a little lower, so "chat" prefers `chat` to `chat-archive`.
+ * they said has to find a place in the name, and each word of the name that
+ * nothing they said accounts for counts against it, so "chat" prefers `chat`
+ * to `chat-archive`.
  */
 export const fit = (said: string, name: string) => {
   const saidWords = words(said)
   const nameWords = words(name)
   if (saidWords.length === 0 || nameWords.length === 0) return 0
   if (saidWords.join("") === nameWords.join("")) return 1
-  const scores = saidWords.map((word) => Math.max(...nameWords.map((candidate) => wordFit(word, candidate))))
-  const covered = scores.reduce((total, score) => total + score, 0) / saidWords.length
-  const spare = Math.max(0, nameWords.length - saidWords.length)
-  return covered * (1 - Math.min(0.2, spare * 0.05))
+  const best = (word: string, among: ReadonlyArray<string>) => Math.max(...among.map((other) => wordFit(word, other)))
+  const covered = saidWords.reduce((total, word) => total + best(word, nameWords), 0) / saidWords.length
+  const unexplained = nameWords.filter((word) => best(word, saidWords) === 0).length
+  return covered * (1 - Math.min(0.45, unexplained * 0.15))
 }
 
 /** Close enough to be worth offering. */
 const WORTH_OFFERING = 0.5
 /** Close enough to start work in without asking, when nothing else comes near. */
 const SURE = 0.8
-const CLEAR_LEAD = 0.15
+const CLEAR_LEAD = 0.1
 
 export interface Match {
   readonly project: Project

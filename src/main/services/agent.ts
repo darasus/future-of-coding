@@ -9,6 +9,7 @@ import {
 import { createRequire } from "node:module"
 import * as path from "node:path"
 import type { PermissionMode } from "../../shared/domain.ts"
+import type { Shot } from "./screen.ts"
 
 /**
  * Where the Claude Code program is in an installed copy of the app, or
@@ -41,10 +42,19 @@ class InputQueue {
   private waiting: ((result: IteratorResult<SDKUserMessage>) => void) | null = null
   private ended = false
 
-  push(text: string): void {
+  /** Adds a message, with a picture of the screen in front of it when there is one. */
+  push(text: string, shot: Shot | null = null): void {
     const message: SDKUserMessage = {
       type: "user",
-      message: { role: "user", content: text },
+      message: {
+        role: "user",
+        content: shot === null
+          ? text
+          : [
+            { type: "image", source: { type: "base64", media_type: shot.mediaType, data: shot.data } },
+            { type: "text", text }
+          ]
+      },
       parent_tool_use_id: null,
       origin: { kind: "human" }
     }

@@ -32,6 +32,12 @@ At the start of each conversation you are told, silently, the names of the user'
 asked you to remember, and how your last conversation with them ended. Use all three without saying you
 were told. When the user names a project, pass its name on exactly as it is written in that list, so the
 work starts in the right folder; if you cannot tell which project they mean, ask.
+You cannot see the user's screen, but a thread can be shown it. When they refer to what is in front of
+them ("look at this error", "what is this on my screen", "fix what I'm looking at"), delegate the request
+and say it should include their screen. Do not ask them to describe it.
+When the user asks what a thread changed, or for its diff, delegate that; the answer is a list of files
+to summarise, never to read out line by line. Committing, pushing, opening a pull request and merging a
+thread's branch are follow-ups for that thread: delegate them as a message to it.
 When the user asks you to remember something, or states a lasting preference or fact about how they work
 ("always use pnpm", "from now on…", "my notes are in the vault folder"), delegate it to be remembered and
 confirm in a few words. When they ask you to forget something, delegate that. Never store passwords, keys
@@ -48,6 +54,18 @@ const backendInstructions = `You operate a board of coding-agent threads through
   when they ask for the best or smartest model. Leave it out when they say nothing about it.
   folder may also be a project's name, such as "billing-api": it is matched against the user's projects.
   If the result says there is no such folder and lists close projects, ask the user which they mean.
+  Set include_screen when the task is about what the user is looking at: a picture of their screen goes
+  to the thread with the task. If the result says the app is not allowed to see the screen, tell the
+  user what it says to do.
+  Set separate_copy when the user asks for the work to be kept apart ("on its own branch", "in a separate
+  copy", "don't touch my checkout"). The app also does this by itself when another thread is already
+  working in the same repository. Whenever the result has separate_copy, tell the user in a few words
+  that the thread is working on its own branch, and which.
+- thread_changes: what a thread has changed in its repository: the files, how many lines, and for a
+  thread with its own copy the branch and how many commits. Summarise it in a sentence or two.
+- To commit, push, open a pull request or merge a thread's branch, send that thread a follow-up with
+  message_thread: its agent does it. Only when the user asks.
+- message_thread takes include_screen too, for a follow-up about what the user is looking at.
 - find_project: find which folder a project lives in, from its name or part of it. Use it when the user
   asks where something is or which projects they have, or before start_thread when you are unsure which
   project they mean. With an empty query it lists the most recently changed projects. Never start a
@@ -111,8 +129,19 @@ export const voiceTools = [
       type: "string",
       enum: ["low", "medium", "high", "best"],
       description: "How much intelligence the task needs. Only when the user says so."
+    },
+    include_screen: {
+      type: "boolean",
+      description: "Send a picture of the user's screen with the task. Only when the task is about what they are looking at."
+    },
+    separate_copy: {
+      type: "boolean",
+      description: "Work on a new branch in a copy of the repository made for this thread. Only when the user asks for that."
     }
   }, ["prompt", "title"]),
+  fn("thread_changes", "See what a thread has changed in its repository.", {
+    thread_id: { type: "string", description: "Leave out for the thread the user has open on screen." }
+  }, []),
   fn("find_project", "Find the folder a project lives in by its name, or list recent projects.", {
     query: { type: "string", description: "The project's name or part of it, as the user said it. Empty for the most recent projects." }
   }, ["query"]),
@@ -179,7 +208,11 @@ export const voiceTools = [
   }, []),
   fn("message_thread", "Send a follow-up message to an existing thread, which continues with everything it already knows.", {
     thread_id: { type: "string", description: "Leave out for the thread the user has open on screen." },
-    text: { type: "string" }
+    text: { type: "string" },
+    include_screen: {
+      type: "boolean",
+      description: "Send a picture of the user's screen with the message. Only when it is about what they are looking at."
+    }
   }, ["text"]),
   fn(
     "answer_question",

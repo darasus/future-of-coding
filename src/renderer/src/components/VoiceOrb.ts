@@ -86,7 +86,8 @@ const toolLabels: Record<string, string> = {
   delete_threads: "Deleting threads",
   find_project: "Finding the project",
   remember: "Remembering",
-  forget: "Forgetting"
+  forget: "Forgetting",
+  thread_changes: "Looking at the changes"
 }
 
 /**

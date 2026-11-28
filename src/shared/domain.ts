@@ -30,6 +30,8 @@ export const UserItem = Schema.TaggedStruct("User", {
   id: Schema.String,
   text: Schema.String,
   source: InputSource,
+  /** True when a picture of the person's screen went to the agent with this message. */
+  screenshot: Schema.optionalKey(Schema.Boolean),
   at: Schema.Number
 })
 
@@ -150,10 +152,45 @@ export const ThreadStats = Schema.Struct({
   durationMs: Schema.Number
 })
 
+/**
+ * A thread's own working copy of a repository: a git worktree on a branch made
+ * for it, so it and whoever else works in the repository cannot collide.
+ */
+export const Worktree = Schema.Struct({
+  /** The repository the copy was made from. */
+  repo: Schema.String,
+  /** Where the copy is. */
+  path: Schema.String,
+  branch: Schema.String,
+  /** The commit the copy started from. */
+  base: Schema.String
+})
+export type Worktree = typeof Worktree.Type
+
+/** What a thread has changed in its repository. */
+export const ThreadChanges = Schema.Struct({
+  /** False when the thread's folder is not in a repository, and nothing else is known. */
+  repository: Schema.Boolean,
+  branch: Schema.NullOr(Schema.String),
+  /** True when the thread works in its own copy, and the changes are everything since it was made. */
+  separate: Schema.Boolean,
+  /** Commits the thread has made in its own copy. */
+  commits: Schema.Number,
+  files: Schema.Array(Schema.Struct({
+    path: Schema.String,
+    added: Schema.Number,
+    deleted: Schema.Number,
+    state: Schema.Literals(["changed", "new"])
+  }))
+})
+export type ThreadChanges = typeof ThreadChanges.Type
+
 const threadFields = {
   id: Schema.String,
   title: Schema.String,
   cwd: Schema.String,
+  /** The thread's own working copy, when it has one. `cwd` is then inside it. */
+  worktree: Schema.NullOr(Worktree),
   status: ThreadStatus,
   model: Schema.NullOr(Schema.String),
   permissionMode: PermissionMode,

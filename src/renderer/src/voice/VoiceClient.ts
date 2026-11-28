@@ -517,7 +517,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       })
 
       /** Sends a follow-up to the thread named, or to the one on screen, and says which it was. */
-      const sendToThread = Effect.fnUntraced(function*(threadId: string, message: string) {
+      const sendToThread = Effect.fnUntraced(function*(threadId: string, message: string, screenshot: boolean) {
         const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
         const target = threads.find((thread) => thread.id === threadId) ??
           (threadId === "" ? threads.find((thread) => thread.id === onScreen) : undefined)
@@ -528,10 +528,16 @@ export class VoiceClient extends Context.Service<VoiceClient, {
               : "No thread with that id. Call list_threads and pass a thread_id from it."
           }
         }
-        return yield* bridge.call("threads.send", { id: target.id, text: message, source: "voice" }).pipe(
+        return yield* bridge.call("threads.send", {
+          id: target.id,
+          text: message,
+          source: "voice",
+          ...(screenshot ? { screenshot: true } : {})
+        }).pipe(
           Effect.as({
             sent_to: target.title,
             on_screen: target.id === onScreen,
+            ...(screenshot ? { sent_with: "a picture of the user's screen" } : {}),
             note: "The thread is working on it. You are told when it finishes."
           }),
           Effect.catch((error) => Effect.succeed({ error: error.message }))
@@ -647,6 +653,37 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         return { forgot: best.note.text }
       })
 
+      /** What a thread changed, short enough to be spoken about. */
+      const threadChanges = Effect.fnUntraced(function*(threadId: string) {
+        const threads = yield* bridge.call("threads.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
+        const target = pick(threads, threadId, true)
+        if (target === undefined) return { error: "Say which thread: call list_threads and pass its thread_id." }
+        const changes = yield* bridge.call("threads.changes", { id: target.id }).pipe(Effect.catch(() => Effect.succeed(null)))
+        if (changes === null) return { error: "The thread's changes could not be read." }
+        if (!changes.repository) {
+          return {
+            thread: target.title,
+            note: "Its folder is not a git repository, so there is no diff. These are the files it wrote.",
+            files: target.artifacts.map((artifact) => artifact.relPath).slice(0, 30)
+          }
+        }
+        const added = changes.files.reduce((total, file) => total + file.added, 0)
+        const deleted = changes.files.reduce((total, file) => total + file.deleted, 0)
+        return {
+          thread: target.title,
+          branch: changes.branch,
+          ...(changes.separate
+            ? { own_copy: true, commits_on_its_branch: changes.commits, covers: "everything since its copy was made" }
+            : { covers: "what is not committed yet in its folder, whoever changed it" }),
+          files_changed: changes.files.length,
+          lines_added: added,
+          lines_removed: deleted,
+          files: changes.files.slice(0, 25).map((file) =>
+            file.state === "new" ? `${file.path} (new)` : `${file.path} (+${file.added} -${file.deleted})`
+          )
+        }
+      })
+
       // -------------------------------------------------------------------
       // The app's own updates
       // -------------------------------------------------------------------
@@ -688,14 +725,25 @@ export class VoiceClient extends Context.Service<VoiceClient, {
               cwd: text("folder") === "" ? null : text("folder"),
               model: isIntelligence(text("intelligence")) ? intelligenceModels[text("intelligence") as Intelligence] : null,
               permissionMode: sessionMode,
-              source: "voice"
+              source: "voice",
+              ...(args.include_screen === true ? { screenshot: true } : {}),
+              ...(args.separate_copy === true ? { separate: true } : {})
             }).pipe(
               Effect.map((thread) => ({
                 thread_id: thread.id,
                 title: thread.title,
                 status: thread.status,
-                folder: thread.cwd,
-                model: thread.model ?? "default"
+                folder: thread.worktree?.repo ?? thread.cwd,
+                model: thread.model ?? "default",
+                ...(args.include_screen === true ? { sent_with: "a picture of the user's screen" } : {}),
+                ...(thread.worktree === null ? {} : {
+                  separate_copy: {
+                    branch: thread.worktree.branch,
+                    note: "It works in its own copy of the repository, so it cannot collide with other threads. " +
+                      "Its changes are on that branch until they are merged. Changes in the original folder that " +
+                      "were not committed are not in the copy."
+                  }
+                })
               })),
               Effect.catch((error) => Effect.succeed({ error: error.message }))
             )
@@ -748,7 +796,9 @@ export class VoiceClient extends Context.Service<VoiceClient, {
               Effect.catch((error) => Effect.succeed({ error: error.message }))
             )
           case "message_thread":
-            return sendToThread(text("thread_id"), text("text"))
+            return sendToThread(text("thread_id"), text("text"), args.include_screen === true)
+          case "thread_changes":
+            return threadChanges(text("thread_id"))
           case "stop_thread":
             return stopThread(text("thread_id"))
           case "app_update":

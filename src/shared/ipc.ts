@@ -10,6 +10,7 @@ import {
   Settings,
   SettingsPatch,
   Thread,
+  ThreadChanges,
   ThreadSummary,
   UpdateMode,
   UpdateStatus
@@ -38,14 +39,24 @@ export const Rpcs = {
       cwd: Schema.NullOr(Schema.String),
       model: Schema.NullOr(Schema.String),
       permissionMode: Schema.NullOr(PermissionMode),
-      source: InputSource
+      source: InputSource,
+      /** Send a picture of the screen with the task. */
+      screenshot: Schema.optionalKey(Schema.Boolean),
+      /** Work in a copy of the repository made for this thread, whether or not anyone else is in it. */
+      separate: Schema.optionalKey(Schema.Boolean)
     }),
     ThreadSummary
   ),
   "threads.send": rpc(
-    Schema.Struct({ id: Schema.String, text: Schema.String, source: InputSource }),
+    Schema.Struct({
+      id: Schema.String,
+      text: Schema.String,
+      source: InputSource,
+      screenshot: Schema.optionalKey(Schema.Boolean)
+    }),
     Schema.Void
   ),
+  "threads.changes": rpc(ThreadRef, Schema.NullOr(ThreadChanges)),
   "threads.stop": rpc(ThreadRef, Schema.Void),
   "threads.delete": rpc(ThreadRef, Schema.Void),
   "threads.setMode": rpc(

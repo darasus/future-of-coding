@@ -22,8 +22,9 @@ export const handlers: Handlers = {
   "threads.list": () => Threads.use((threads) => threads.list),
   "threads.get": ({ id }) => Threads.use((threads) => threads.get(id)),
   "threads.create": (input) => Threads.use((threads) => threads.create(input)),
-  "threads.send": ({ id, source, text }) =>
-    Threads.use((threads) => threads.send(id, text, source)),
+  "threads.send": ({ id, screenshot, source, text }) =>
+    Threads.use((threads) => threads.send(id, text, source, screenshot === true)),
+  "threads.changes": ({ id }) => Threads.use((threads) => threads.changes(id)),
   "threads.stop": ({ id }) => Threads.use((threads) => threads.stop(id)),
   "threads.delete": ({ id }) => Threads.use((threads) => threads.remove(id)),
   "threads.setMode": ({ id, mode, source }) =>

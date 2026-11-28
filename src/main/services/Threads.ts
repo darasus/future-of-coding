@@ -1,5 +1,6 @@
 import type { PermissionResult, PermissionUpdate, SDKMessage } from "@anthropic-ai/claude-agent-sdk"
 import { Context, Effect, Layer, Predicate, Schema, Stream } from "effect"
+import { app } from "electron"
 import { randomUUID } from "node:crypto"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
@@ -12,15 +13,19 @@ import {
   type PermissionMode,
   type Question,
   type Thread,
+  type ThreadChanges,
   type ThreadSummary,
-  type Todo
+  type Todo,
+  type Worktree
 } from "../../shared/domain.ts"
 import { type AgentSession, openSession, sdkMode } from "./agent.ts"
 import { Events } from "./Events.ts"
 import { Memory } from "./Memory.ts"
 import { Projects } from "./Projects.ts"
+import { captureScreen, type Shot } from "./screen.ts"
 import { SettingsStore } from "./SettingsStore.ts"
 import { ThreadStore } from "./ThreadStore.ts"
+import { changesIn, createWorktree, removeUntouchedWorktree, repoRoot } from "./worktrees.ts"
 
 // The transcript is mutated in place while a turn streams, then sent to the
 // renderer as snapshots.
@@ -249,6 +254,25 @@ const standingInstructions = (notes: ReadonlyArray<string>) =>
       "or a fact about them and their setup, and follow it unless this task says otherwise:\n" +
       notes.map((note) => `- ${note}`).join("\n")
 
+/** What an agent with its own working copy has to know about where it is. */
+const worktreeBriefing = (worktree: Worktree | null) =>
+  worktree === null
+    ? ""
+    : `You are working in your own copy of the repository at ${worktree.repo}: a git worktree at ${worktree.path}, ` +
+      `on the branch ${worktree.branch}, made for this task from commit ${worktree.base.slice(0, 10)}. Someone else ` +
+      "may be working in the original folder at the same time, so make every change here and never edit files, " +
+      "switch branches or run git commands that change things in the original folder. Commit your work on this " +
+      "branch when it is done or when you are asked to. Do not push, merge or open a pull request unless asked."
+
+/** What the agent is told when a picture of the screen comes with a message. */
+const SCREEN_NOTE = "\n\n[A picture of the person's screen, taken as they said this, is attached. It is what they mean by \"this\" or \"my screen\".]"
+
+/** Takes the picture a message asked for, or fails with a sentence that can be read out. */
+const shoot = Effect.tryPromise({
+  try: captureScreen,
+  catch: (error) => new ThreadError({ message: error instanceof Error ? error.message : "The screen could not be captured." })
+})
+
 const titleOf = (prompt: string, given: string | undefined) => {
   const tidy = (given ?? "").replace(/\s+/g, " ").trim().replace(/^["'“‘`]+|["'”’`]+$/g, "").replace(/[.:;,]+$/, "").trim()
   return oneLine(tidy, MAX_TITLE) || oneLine(prompt, 72) || "New thread"
@@ -298,8 +322,13 @@ export class Threads extends Context.Service<Threads, {
     readonly model: string | null
     readonly permissionMode: PermissionMode | null
     readonly source: InputSource
+    readonly screenshot?: boolean
+    readonly separate?: boolean
   }): Effect.Effect<ThreadSummary, ThreadError>
-  send(id: string, text: string, source: InputSource): Effect.Effect<void>
+  /** Sends a thread a message, with a picture of the screen when `screenshot` is set. */
+  send(id: string, text: string, source: InputSource, screenshot?: boolean): Effect.Effect<void, ThreadError>
+  /** What a thread has changed in its repository, or `null` when there is no such thread. */
+  changes(id: string): Effect.Effect<ThreadChanges | null>
   stop(id: string): Effect.Effect<void>
   remove(id: string): Effect.Effect<void>
   setMode(id: string, mode: PermissionMode, source: InputSource): Effect.Effect<void>
@@ -761,7 +790,7 @@ export class Threads extends Context.Service<Threads, {
         )
       })
 
-      const start = Effect.fnUntraced(function*(thread: MutableThread, text: string) {
+      const start = Effect.fnUntraced(function*(thread: MutableThread, text: string, shot: Shot | null) {
         const live = liveOf(thread.id)
         const { preferSubscription } = yield* settings.get
         const notes = yield* memory.list
@@ -772,29 +801,45 @@ export class Threads extends Context.Service<Threads, {
           resume: thread.sessionId,
           preferSubscription,
           canUseTool: askPermission(thread, live),
-          briefing: standingInstructions(notes.map((note) => note.text))
+          briefing: [standingInstructions(notes.map((note) => note.text)), worktreeBriefing(thread.worktree)]
+            .filter((part) => part !== "").join("\n\n")
         })
         live.session = session
         live.stopping = false
-        session.input.push(text)
+        session.input.push(text, shot)
         yield* Effect.forkIn(run(thread, live, session), scope)
       })
 
-      const send = Effect.fn("Threads.send")(function*(id: string, text: string, source: InputSource) {
-        const thread = threads.get(id)
-        if (!thread || text.trim() === "") return
-        const live = liveOf(id)
-        thread.items.push({ _tag: "User", id: randomUUID(), text, source, at: Date.now() })
+      /** Puts a message in a thread's transcript and hands it to the agent. */
+      const post = Effect.fnUntraced(function*(thread: MutableThread, text: string, source: InputSource, shot: Shot | null) {
+        const live = liveOf(thread.id)
+        thread.items.push({
+          _tag: "User",
+          id: randomUUID(),
+          text,
+          source,
+          ...(shot === null ? {} : { screenshot: true }),
+          at: Date.now()
+        })
         thread.status = "running"
         touch(thread)
+        const told = shot === null ? text : text + SCREEN_NOTE
         // A session that has finished its turn has closed its input and is on
         // its way out. A message pushed to it would never be read, so the
         // follow-up starts the next session instead.
         if (live.session && !live.stopping && !live.session.input.closed) {
-          live.session.input.push(text)
+          live.session.input.push(told, shot)
         } else {
-          yield* start(thread, text)
+          yield* start(thread, told, shot)
         }
+      })
+
+      const send = Effect.fn("Threads.send")(function*(id: string, text: string, source: InputSource, screenshot = false) {
+        const thread = threads.get(id)
+        if (!thread || text.trim() === "") return
+        // Taken first: a message that was to show the screen is not sent without it.
+        const shot = screenshot ? yield* shoot : null
+        yield* post(thread, text, source, shot)
       })
 
       // ---------------------------------------------------------------------
@@ -855,11 +900,36 @@ export class Threads extends Context.Service<Threads, {
             }
             cwd = project.path
           }
+          const shot = input.screenshot === true ? yield* shoot : null
+          const id = randomUUID()
+          const title = titleOf(input.prompt, input.title)
+          // Two threads changing the same files would undo each other's work.
+          // A thread gets its own copy of the repository when another is
+          // already working in the folder itself, or when one was asked for.
+          const repo = yield* Effect.promise(() => repoRoot(cwd))
+          let worktree: Worktree | null = null
+          let sharedWith: string | null = null
+          if (repo !== null) {
+            for (const other of threads.values()) {
+              if (other.worktree !== null || (other.status !== "running" && other.status !== "waiting")) continue
+              if ((yield* Effect.promise(() => repoRoot(other.cwd))) === repo) sharedWith = other.title
+            }
+            if (input.separate === true || sharedWith !== null) {
+              const made = yield* Effect.promise(() =>
+                createWorktree({ cwd, title, threadId: id, root: path.join(app.getPath("userData"), "worktrees") })
+              )
+              if (made !== null) {
+                worktree = made.worktree
+                cwd = made.cwd
+              }
+            }
+          }
           const now = Date.now()
           const thread: MutableThread = {
-            id: randomUUID(),
-            title: titleOf(input.prompt, input.title),
+            id,
+            title,
             cwd,
+            worktree,
             status: "idle",
             model: input.model ?? defaults.defaultModel,
             permissionMode: input.permissionMode ?? defaults.defaultPermissionMode,
@@ -872,7 +942,16 @@ export class Threads extends Context.Service<Threads, {
             items: []
           }
           threads.set(thread.id, thread)
-          yield* send(thread.id, input.prompt, input.source)
+          if (worktree !== null && repo !== null) {
+            notice(
+              thread,
+              "info",
+              `Working in its own copy of ${path.basename(repo)}, on the branch ${worktree.branch}` +
+                (sharedWith === null ? "" : `, because “${oneLine(sharedWith, 60)}” is already working there`) +
+                ". Changes in the original folder that were not committed are not in the copy."
+            )
+          }
+          yield* post(thread, input.prompt, input.source, shot)
           return summaryOf(thread)
         }),
         send,
@@ -900,6 +979,9 @@ export class Threads extends Context.Service<Threads, {
               live.interrupted = live.session
               live.session?.query.close()
             }
+            // A copy nothing was done in goes with its thread; one with work in it stays on disk.
+            const copy = threads.get(id)?.worktree ?? null
+            if (copy !== null) yield* Effect.promise(() => removeUntouchedWorktree(copy).catch(() => false))
             threads.delete(id)
             lives.delete(id)
             dirty.delete(id)
@@ -956,6 +1038,11 @@ export class Threads extends Context.Service<Threads, {
             return artifact ? { ...artifact } : null
           }),
         cwd: (threadId) => Effect.sync(() => threads.get(threadId)?.cwd ?? null),
+        changes: (id) =>
+          Effect.promise(async () => {
+            const thread = threads.get(id)
+            return thread === undefined ? null : await changesIn(thread.cwd, thread.worktree)
+          }),
         setModel: (id, model, source) =>
           Effect.gen(function*() {
             const thread = threads.get(id)
