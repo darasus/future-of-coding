@@ -231,7 +231,18 @@ const applyTaskTool = (
   }
 }
 
-const titleOf = (prompt: string) => oneLine(prompt, 72) || "New thread"
+/** The longest title a row shows comfortably. */
+const MAX_TITLE = 60
+
+/**
+ * A thread's name in the list. The voice assistant writes one when it starts
+ * the thread; it is tidied here, because a model now and then wraps a title in
+ * quotes or ends it like a sentence. Without one, the task's first line stands in.
+ */
+const titleOf = (prompt: string, given: string | undefined) => {
+  const tidy = (given ?? "").replace(/\s+/g, " ").trim().replace(/^["'“‘`]+|["'”’`]+$/g, "").replace(/[.:;,]+$/, "").trim()
+  return oneLine(tidy, MAX_TITLE) || oneLine(prompt, 72) || "New thread"
+}
 
 const summaryOf = (thread: MutableThread): ThreadSummary => {
   let preview = ""
@@ -272,6 +283,7 @@ export class Threads extends Context.Service<Threads, {
   get(id: string): Effect.Effect<Thread | null>
   create(input: {
     readonly prompt: string
+    readonly title?: string
     readonly cwd: string | null
     readonly model: string | null
     readonly permissionMode: PermissionMode | null
@@ -815,7 +827,7 @@ export class Threads extends Context.Service<Threads, {
           const now = Date.now()
           const thread: MutableThread = {
             id: randomUUID(),
-            title: titleOf(input.prompt),
+            title: titleOf(input.prompt, input.title),
             cwd,
             status: "idle",
             model: input.model ?? defaults.defaultModel,

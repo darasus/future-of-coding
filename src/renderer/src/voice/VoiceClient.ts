@@ -519,6 +519,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           case "start_thread":
             return bridge.call("threads.create", {
               prompt: text("prompt"),
+              ...(text("title") === "" ? {} : { title: text("title") }),
               cwd: text("folder") === "" ? null : text("folder"),
               model: isIntelligence(text("intelligence")) ? intelligenceModels[text("intelligence") as Intelligence] : null,
               permissionMode: sessionMode,

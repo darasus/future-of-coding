@@ -61,7 +61,7 @@ What you can say:
 
 | Say | What happens |
 | --- | --- |
-| "Start a thread that…" (optionally "in the folder…") | A new thread starts in that folder, or your default one |
+| "Start a thread that…" (optionally "in the folder…") | A new thread starts in that folder, or your default one. The assistant gives it a title of a few words, which is how it is listed and referred to afterwards |
 | "…this one is simple" / "…this needs the best model" | The thread runs on a model to match: Haiku for low, Sonnet for medium, Opus for high, Fable for best. Unsaid, it uses the Claude Code default |
 | "Tell that thread to…" | A follow-up is sent to an existing thread |
 | "Allow it" / "Decline it" | Answers what a paused thread is asking for, once it has been read to you |
