@@ -1,6 +1,6 @@
 {
   "name": "future-of-ai-interface",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "A voice-driven desktop board for running Claude coding agents",
   "type": "module",

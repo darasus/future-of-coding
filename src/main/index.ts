@@ -258,7 +258,11 @@ const main = async () => {
     if (disposed) return
     event.preventDefault()
     disposed = true
-    void runtime.dispose().finally(() => app.quit())
+    // Quit again on a later turn of the event loop, never from inside this
+    // event. With nothing running the services close at once, and a quit asked
+    // for while Electron is still handling this one is cancelled along with it:
+    // the window closes and the app stays open.
+    void runtime.dispose().finally(() => setImmediate(() => app.quit()))
   })
 }
 
