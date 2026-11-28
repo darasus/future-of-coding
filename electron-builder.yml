@@ -1,8 +1,8 @@
-# The identifier still carries the project's first name, Future of Coding, on
-# purpose. macOS only lets an app be replaced by an update with the same
-# identifier, and ties the microphone permission to it, so changing it would
-# strand every copy already installed.
-appId: com.darasus.futureofcoding
+# Changed from com.darasus.futureofcoding when the project was renamed. A copy of
+# 0.1.0 cannot update across that change, because macOS only lets an app be
+# replaced by an update with the same identifier: it has to be reinstalled once.
+# Do not change this again without a reason that is worth the same cost.
+appId: com.darasus.futureofaiinterface
 productName: Future of AI Interface
 copyright: Copyright © 2026 Ilya Daraseliya
 directories:
