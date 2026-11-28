@@ -83,6 +83,8 @@ export const Rpcs = {
   "updates.download": rpc(Schema.Void, Schema.Void),
   "updates.install": rpc(Schema.Void, Schema.Void),
   "updates.setMode": rpc(Schema.Struct({ mode: UpdateMode }), Schema.Void),
+  /** The window says whether a conversation is running, so the app knows when to notify instead. */
+  "voice.status": rpc(Schema.Struct({ live: Schema.Boolean }), Schema.Void),
   "voice.connect": rpc(
     Schema.Struct({ sdp: Schema.String }),
     Schema.Struct({ sessionId: Schema.String, sdp: Schema.String })
@@ -104,7 +106,11 @@ export const AppEvent = Schema.Union([
   Schema.TaggedStruct("Thread", { thread: Thread }),
   Schema.TaggedStruct("ThreadDeleted", { id: Schema.String }),
   Schema.TaggedStruct("Account", { account: Account }),
-  Schema.TaggedStruct("Update", { status: UpdateStatus })
+  Schema.TaggedStruct("Update", { status: UpdateStatus }),
+  /** Put this thread on screen: its notification was clicked. */
+  Schema.TaggedStruct("Reveal", { threadId: Schema.String }),
+  /** Start or stop the conversation: the global shortcut was pressed. */
+  Schema.TaggedStruct("ToggleVoice", {})
 ])
 export type AppEvent = typeof AppEvent.Type
 

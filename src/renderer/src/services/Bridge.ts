@@ -64,3 +64,16 @@ export const live = <A>(
       if (!seen) Queue.offerUnsafe(queue, initial)
     })
   )
+
+/** One kind of event from the main process, for a subscription that only cares about that one. */
+export const appEvent = <T extends AppEvent["_tag"]>(tag: T): Stream.Stream<Extract<AppEvent, { readonly _tag: T }>> =>
+  Stream.callback((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() =>
+        window.fai.subscribe((event) => {
+          if (event._tag === tag) Queue.offerUnsafe(queue, event as Extract<AppEvent, { readonly _tag: T }>)
+        })
+      ),
+      (unsubscribe) => Effect.sync(unsubscribe)
+    )
+  )

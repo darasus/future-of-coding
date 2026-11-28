@@ -112,6 +112,37 @@ const taskProgress = (todos: ReadonlyArray<Todo>) => {
   return `${done} of ${todos.length} done` + (current === undefined ? "" : `; now: ${current.activeForm}`)
 }
 
+/** Tells the main process whether a conversation is running, so it knows when to notify instead. */
+const reportLive = (live: boolean) => {
+  void window.fai.invoke("voice.status", { live })
+}
+
+/**
+ * A short tone for a conversation starting or ending while the window is not
+ * in front, which is when the shortcut was used from another app and there is
+ * nothing to see. It rises when listening starts and falls when it stops.
+ */
+const cue = (starting: boolean) => {
+  if (document.hasFocus()) return
+  try {
+    const context = new AudioContext()
+    const tone = context.createOscillator()
+    const level = context.createGain()
+    const now = context.currentTime
+    tone.frequency.setValueAtTime(starting ? 520 : 680, now)
+    tone.frequency.exponentialRampToValueAtTime(starting ? 780 : 440, now + 0.12)
+    level.gain.setValueAtTime(0.0001, now)
+    level.gain.exponentialRampToValueAtTime(0.1, now + 0.02)
+    level.gain.exponentialRampToValueAtTime(0.0001, now + 0.16)
+    tone.connect(level).connect(context.destination)
+    tone.start(now)
+    tone.stop(now + 0.18)
+    tone.addEventListener("ended", () => void context.close().catch(() => undefined))
+  } catch {
+    // No sound is not worth failing over.
+  }
+}
+
 const isIntelligence = (level: string): level is Intelligence => level in intelligenceModels
 
 /** The words the voice tool uses for permission modes. */
@@ -174,6 +205,8 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         if (session === null) return
         const ending = session
         session = null
+        reportLive(false)
+        cue(false)
         ending.stopWatching()
         heard.clear()
         asked.clear()
@@ -819,6 +852,8 @@ export class VoiceClient extends Context.Service<VoiceClient, {
             }))
             if (session !== null) session.stopWatching = watchBoard(channel)
             if (onScreen !== null) void tellScreen(channel)
+            reportLive(true)
+            cue(true)
             emit({ _tag: "Started" })
             break
           case "session.input_transcript.delta":
@@ -971,6 +1006,8 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       })
 
       yield* Effect.addFinalizer(() => Effect.sync(() => teardown(null)))
+      // A page that was reloaded in the middle of a conversation never said it ended.
+      reportLive(false)
 
       const spectrum = (): Spectrum => {
         if (session === null) return SILENCE

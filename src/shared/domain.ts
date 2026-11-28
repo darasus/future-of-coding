@@ -257,7 +257,11 @@ export const Settings = Schema.Struct({
   hasOpenAiKey: Schema.Boolean,
   voiceModel: Schema.String,
   voiceBackendModel: Schema.String,
-  updateMode: UpdateMode
+  updateMode: UpdateMode,
+  /** The key combination that starts and stops voice from any app, as Electron writes it, or `null` for none. */
+  voiceShortcut: Schema.NullOr(Schema.String),
+  /** False when the combination could not be taken, usually because another app has it. */
+  voiceShortcutActive: Schema.Boolean
 })
 export type Settings = typeof Settings.Type
 
@@ -270,7 +274,8 @@ export const SettingsPatch = Schema.Struct({
   openAiKey: Schema.optionalKey(Schema.String),
   voiceModel: Schema.optionalKey(Schema.String),
   voiceBackendModel: Schema.optionalKey(Schema.String),
-  updateMode: Schema.optionalKey(UpdateMode)
+  updateMode: Schema.optionalKey(UpdateMode),
+  voiceShortcut: Schema.optionalKey(Schema.NullOr(Schema.String))
 })
 export type SettingsPatch = typeof SettingsPatch.Type
 

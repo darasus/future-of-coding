@@ -4,7 +4,7 @@ import { Effect, Layer, Schema, Stream } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import type { ThreadStatus, ThreadSummary, UpdateStatus } from "../../shared/domain.ts"
 import { Icon } from "./components/icons.ts"
-import { Bridge } from "./services/Bridge.ts"
+import { appEvent, Bridge } from "./services/Bridge.ts"
 import { MarkReady, RowMotion } from "./components/mounts.ts"
 import { SettingsPanel } from "./components/SettingsPanel.ts"
 import { ThreadPanel } from "./components/ThreadPanel.ts"
@@ -159,6 +159,11 @@ export const AppNoDeps = Html.component({
   // Once the panel has landed back in its row, the row gives the shared name
   // up, so the next row to open can take it.
   subscriptions: ({ model }) => [
+    // A notification that was clicked asks for its thread, the way the assistant would.
+    Subscription.make(
+      "reveal",
+      appEvent("Reveal").pipe(Stream.map((event) => AppMessage.VoiceAskedToShow({ id: event.threadId })))
+    ),
     (model.settingsOpen || model.selectedId !== null) &&
     HtmlSubscription.onDocument("keydown", ({ key }) => key === "Escape" ? AppMessage.PressedEscape() : undefined),
     model.returnId !== null &&
