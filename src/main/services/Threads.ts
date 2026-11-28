@@ -290,7 +290,7 @@ export class Threads extends Context.Service<Threads, {
   /** Changes the model a thread runs on, from its next step. */
   setModel(id: string, model: string, source: InputSource): Effect.Effect<void>
   readonly account: Effect.Effect<Account>
-}>()("foc/main/Threads") {
+}>()("fai/main/Threads") {
   static readonly layer = Layer.effect(
     Threads,
     Effect.gen(function*() {

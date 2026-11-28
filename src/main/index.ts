@@ -21,27 +21,44 @@ const DEV_URL = process.env.ELECTRON_RENDERER_URL
 // would otherwise share one data folder, each keeping its own picture of the
 // threads in memory and saving over the other. So a copy run from source has
 // a folder of its own. It has to be chosen before the app is ready.
-const INSTALLED_DATA = path.join(app.getPath("appData"), "future-of-coding")
-const SOURCE_DATA = path.join(app.getPath("appData"), "future-of-coding-dev")
-if (process.env.FOC_DATA_DIR !== undefined) {
+const INSTALLED_DATA = path.join(app.getPath("appData"), "future-of-ai-interface")
+const SOURCE_DATA = path.join(app.getPath("appData"), "future-of-ai-interface-dev")
+/** Where the same things were kept while the project was called Future of Coding. */
+const FORMER = {
+  installed: path.join(app.getPath("appData"), "future-of-coding", "future-of-coding.db"),
+  source: path.join(app.getPath("appData"), "future-of-coding-dev", "future-of-coding.db")
+}
+if (process.env.FAI_DATA_DIR !== undefined) {
   // For trying a build without touching real threads.
-  app.setPath("userData", process.env.FOC_DATA_DIR)
+  app.setPath("userData", process.env.FAI_DATA_DIR)
 } else {
   app.setPath("userData", app.isPackaged ? INSTALLED_DATA : SOURCE_DATA)
 }
 
 /**
- * The first time the app runs from source, it starts with a copy of the
- * installed app's threads and settings, so nothing seems to have gone missing.
+ * The first time a copy of the app finds its data folder empty, it starts
+ * from a copy of the nearest threads and settings there are, so nothing seems
+ * to have gone missing: what the same copy kept under the project's former
+ * name, and for a copy run from source, failing that, the installed app's.
+ * The original is copied, never moved, so it is still there afterwards.
  */
-const seedSourceData = async () => {
-  if (app.isPackaged || process.env.FOC_DATA_DIR !== undefined) return
-  const mine = path.join(SOURCE_DATA, Database.DATABASE_FILE)
+const seedData = async () => {
+  if (process.env.FAI_DATA_DIR !== undefined) return
+  const folder = app.isPackaged ? INSTALLED_DATA : SOURCE_DATA
+  const mine = path.join(folder, Database.DATABASE_FILE)
   const exists = (file: string) => fs.access(file).then(() => true, () => false)
-  if (await exists(mine) || !(await exists(path.join(INSTALLED_DATA, Database.DATABASE_FILE)))) return
-  await fs.mkdir(SOURCE_DATA, { recursive: true })
-  for (const suffix of ["", "-wal", "-shm"]) {
-    await fs.copyFile(path.join(INSTALLED_DATA, Database.DATABASE_FILE + suffix), mine + suffix).catch(() => undefined)
+  if (await exists(mine)) return
+  const sources = app.isPackaged
+    ? [FORMER.installed]
+    : [FORMER.source, path.join(INSTALLED_DATA, Database.DATABASE_FILE), FORMER.installed]
+  for (const from of sources) {
+    if (!(await exists(from))) continue
+    await fs.mkdir(folder, { recursive: true })
+    // The database and the two files SQLite keeps beside it while it is in use.
+    for (const suffix of ["", "-wal", "-shm"]) {
+      await fs.copyFile(from + suffix, mine + suffix).catch(() => undefined)
+    }
+    return
   }
 }
 
@@ -145,7 +162,7 @@ const main = async () => {
     window.focus()
   })
   await app.whenReady()
-  await seedSourceData()
+  await seedData()
   nativeTheme.themeSource = "dark"
 
   // In development, keys can live in .env or .env.local beside package.json.

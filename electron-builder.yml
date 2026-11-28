@@ -1,5 +1,9 @@
+# The identifier still carries the project's first name, Future of Coding, on
+# purpose. macOS only lets an app be replaced by an update with the same
+# identifier, and ties the microphone permission to it, so changing it would
+# strand every copy already installed.
 appId: com.darasus.futureofcoding
-productName: Future of Coding
+productName: Future of AI Interface
 copyright: Copyright © 2026 Ilya Daraseliya
 directories:
   buildResources: build
@@ -38,4 +42,4 @@ npmRebuild: false
 publish:
   provider: github
   owner: darasus
-  repo: future-of-coding
+  repo: future-of-ai-interface

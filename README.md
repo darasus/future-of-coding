@@ -1,4 +1,4 @@
-# Future of Coding
+# Future of AI Interface
 
 A local desktop workbench for running Claude coding agents as a board of threads. Each thread is
 one agent working in a folder on your machine. You direct all of it by voice: there are no text boxes
@@ -8,7 +8,7 @@ answered and the files it wrote; Escape or the close button takes you back to th
 individual tool calls are counted and folded away.
 
 Everything runs on this machine in Electron. Threads, transcripts and settings are kept in one SQLite
-database, `future-of-coding.db`, in the app's data folder (`~/Library/Application Support/future-of-coding`
+database, `future-of-ai-interface.db`, in the app's data folder (`~/Library/Application Support/future-of-ai-interface`
 on macOS). It is opened with Node's built-in `node:sqlite` through `@effect/sql-sqlite-node`, so there
 is no native module to compile. The tables are created by migrations in `src/main/services/Database.ts`;
 JSON files left by earlier versions are copied in the first time the database is created.
@@ -94,8 +94,8 @@ A downloaded version also goes in when you quit the app in the ordinary way. By 
 update?", "check for updates", "restart to update". A copy run from source with `pnpm dev` has nothing
 to update and says so.
 
-The installed app keeps its threads in `~/Library/Application Support/future-of-coding`. A copy run
-from source keeps its own in `future-of-coding-dev` beside it, started from a copy of the installed
+The installed app keeps its threads in `~/Library/Application Support/future-of-ai-interface`. A copy
+run from source keeps its own in `future-of-ai-interface-dev` beside it, started from a copy of the installed
 app's, so the two never write over each other.
 
 ## Releasing
@@ -116,7 +116,7 @@ signed app be replaced in place.
 | --- | --- |
 | `src/shared` | Schemas for threads, artifacts and settings, and the typed request contract between the two processes |
 | `src/main` | The Electron main process: Effect services for the database, settings, threads (the Agent SDK), artifacts and voice |
-| `src/preload` | The sandboxed bridge exposed to the page as `window.foc` |
+| `src/preload` | The sandboxed bridge exposed to the page as `window.fai` |
 | `src/renderer` | The interface, written with `@effect/ui`: stream queries for live data, one component per panel |
 
 `@effect/ui` is not on npm yet and is installed from the Effect team's snapshot builds, so its API

@@ -186,7 +186,7 @@ export const voiceTools = [
  */
 export class Voice extends Context.Service<Voice, {
   connect(sdp: string): Effect.Effect<{ readonly sessionId: string; readonly sdp: string }, VoiceError>
-}>()("foc/main/Voice") {
+}>()("fai/main/Voice") {
   static readonly layer = Layer.effect(
     Voice,
     Effect.gen(function*() {

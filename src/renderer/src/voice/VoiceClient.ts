@@ -143,7 +143,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
   readonly show: (threadId: string | null) => Effect.Effect<void>
   /** Reads the sound of both voices at this instant. Cheap enough to call every frame. */
   readonly spectrum: () => Spectrum
-}>()("foc/renderer/VoiceClient") {
+}>()("fai/renderer/VoiceClient") {
   static readonly layer = Layer.effect(
     VoiceClient,
     Effect.gen(function*() {
@@ -726,13 +726,13 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           )
         }
 
-        const unsubscribe = window.foc.subscribe((event: AppEvent) => {
+        const unsubscribe = window.fai.subscribe((event: AppEvent) => {
           if (event._tag === "Summaries") consider(event.summaries)
           if (event._tag === "Update") considerUpdate(event.status)
         })
         // What was already finished before the session began is not news, but a
         // thread that is waiting for approval right now is worth saying.
-        void window.foc.invoke("threads.list", undefined).then((reply) => {
+        void window.fai.invoke("threads.list", undefined).then((reply) => {
           const threads = reply.ok ? reply.value as ReadonlyArray<ThreadSummary> : []
           consider(threads)
           primed = true
@@ -756,7 +756,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       /** Tells the conversation, without it speaking, which thread is open. */
       const tellScreen = async (channel: RTCDataChannel) => {
         const showing = onScreen
-        const reply = showing === null ? null : await window.foc.invoke("threads.list", undefined)
+        const reply = showing === null ? null : await window.fai.invoke("threads.list", undefined)
         const threads = reply !== null && reply.ok ? reply.value as ReadonlyArray<ThreadSummary> : []
         const thread = threads.find((candidate) => candidate.id === showing)
         // Stale by the time the list came back: a newer note is on its way.
@@ -884,7 +884,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       const connect = async (stale: () => boolean) => {
         if (session !== null) return
         // Ask for the key before the microphone, so nobody grants access for nothing.
-        const settings = await window.foc.invoke("settings.get", undefined)
+        const settings = await window.fai.invoke("settings.get", undefined)
         if (stale()) return
         if (settings.ok && !(settings.value as { readonly hasOpenAiKey: boolean }).hasOpenAiKey) {
           throw new Error("Add an OpenAI API key in Settings to use live voice.")
@@ -924,7 +924,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
           await iceGathered(connection)
           // Stopped already: do not open a session on the server for nobody.
           if (session !== mine) return
-          const reply = await window.foc.invoke("voice.connect", { sdp: connection.localDescription?.sdp ?? "" })
+          const reply = await window.fai.invoke("voice.connect", { sdp: connection.localDescription?.sdp ?? "" })
           if (session !== mine) return
           if (!reply.ok) throw new Error(reply.error)
           const answer = reply.value as { readonly sdp: string }

@@ -190,10 +190,10 @@ export type ThreadSummary = typeof ThreadSummary.Type
 
 /**
  * The scheme HTML artifacts are previewed from. A preview is addressed as
- * `foc-preview://<thread id>/<path inside the thread's folder>`, so the page's
+ * `fai-preview://<thread id>/<path inside the thread's folder>`, so the page's
  * own relative links to stylesheets and images resolve.
  */
-export const PREVIEW_SCHEME = "foc-preview"
+export const PREVIEW_SCHEME = "fai-preview"
 
 export const ArtifactContent = Schema.Struct({
   path: Schema.String,

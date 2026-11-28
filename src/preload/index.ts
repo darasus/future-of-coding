@@ -3,8 +3,8 @@ import type { AppEvent, PreloadApi } from "../shared/ipc.ts"
 
 // Channel names are repeated here because a sandboxed preload cannot import
 // modules that pull in runtime dependencies.
-const RPC_CHANNEL = "foc:rpc"
-const EVENT_CHANNEL = "foc:event"
+const RPC_CHANNEL = "fai:rpc"
+const EVENT_CHANNEL = "fai:event"
 
 const api: PreloadApi = {
   invoke: (name, payload) => ipcRenderer.invoke(RPC_CHANNEL, name, payload),
@@ -18,4 +18,4 @@ const api: PreloadApi = {
   platform: process.platform
 }
 
-contextBridge.exposeInMainWorld("foc", api)
+contextBridge.exposeInMainWorld("fai", api)

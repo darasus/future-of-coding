@@ -106,7 +106,7 @@ export class ThreadStore extends Context.Service<ThreadStore, {
   readonly all: Effect.Effect<ReadonlyArray<Thread>>
   save(thread: Thread): Effect.Effect<void>
   remove(id: string): Effect.Effect<void>
-}>()("foc/main/ThreadStore") {
+}>()("fai/main/ThreadStore") {
   static readonly layer = Layer.effect(
     ThreadStore,
     Effect.gen(function*() {

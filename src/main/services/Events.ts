@@ -6,7 +6,7 @@ export class Events extends Context.Service<Events, {
   readonly hub: PubSub.PubSub<AppEvent>
   /** Publishes from plain callbacks, such as the agent's message loop. */
   publish(event: AppEvent): void
-}>()("foc/main/Events") {
+}>()("fai/main/Events") {
   static readonly layer = Layer.effect(
     Events,
     Effect.gen(function*() {

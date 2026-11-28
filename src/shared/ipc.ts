@@ -12,8 +12,8 @@ import {
   UpdateStatus
 } from "./domain.ts"
 
-export const RPC_CHANNEL = "foc:rpc"
-export const EVENT_CHANNEL = "foc:event"
+export const RPC_CHANNEL = "fai:rpc"
+export const EVENT_CHANNEL = "fai:event"
 
 const rpc = <P extends Schema.Top, S extends Schema.Top>(payload: P, success: S) => ({ payload, success })
 
@@ -106,7 +106,7 @@ export const AppEvent = Schema.Union([
 ])
 export type AppEvent = typeof AppEvent.Type
 
-/** The API the preload script exposes on `window.foc`. */
+/** The API the preload script exposes on `window.fai`. */
 export interface PreloadApi {
   readonly invoke: (name: string, payload: unknown) => Promise<RpcReply<unknown>>
   readonly subscribe: (listener: (event: AppEvent) => void) => () => void

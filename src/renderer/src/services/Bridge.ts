@@ -3,7 +3,7 @@ import type { AppEvent, PreloadApi, RpcName, RpcPayload, RpcSuccess } from "../.
 
 declare global {
   interface Window {
-    readonly foc: PreloadApi
+    readonly fai: PreloadApi
   }
 }
 
@@ -16,11 +16,11 @@ export class Bridge extends Context.Service<Bridge, {
   call<N extends RpcName>(name: N, payload: RpcPayload<N>): Effect.Effect<RpcSuccess<N>, BridgeError>
   /** Every event the main process pushes, from the moment the stream starts. */
   readonly events: Stream.Stream<AppEvent>
-}>()("foc/renderer/Bridge") {
+}>()("fai/renderer/Bridge") {
   static readonly layer = Layer.sync(Bridge, () =>
     Bridge.of({
       call: (name, payload) =>
-        Effect.promise(() => window.foc.invoke(name, payload)).pipe(
+        Effect.promise(() => window.fai.invoke(name, payload)).pipe(
           Effect.flatMap((reply) =>
             reply.ok
               ? Effect.succeed(reply.value as RpcSuccess<typeof name>)
@@ -29,7 +29,7 @@ export class Bridge extends Context.Service<Bridge, {
         ),
       events: Stream.callback<AppEvent>((queue) =>
         Effect.acquireRelease(
-          Effect.sync(() => window.foc.subscribe((event) => Queue.offerUnsafe(queue, event))),
+          Effect.sync(() => window.fai.subscribe((event) => Queue.offerUnsafe(queue, event))),
           (unsubscribe) => Effect.sync(unsubscribe)
         )
       )
@@ -51,7 +51,7 @@ export const live = <A>(
       let seen = false
       yield* Effect.acquireRelease(
         Effect.sync(() =>
-          window.foc.subscribe((event) => {
+          window.fai.subscribe((event) => {
             const value = pick(event)
             if (value === undefined) return
             seen = true

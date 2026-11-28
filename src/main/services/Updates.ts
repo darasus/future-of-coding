@@ -19,7 +19,7 @@ const QUIET_CHECK_MS = 20_000
  * holding `latest-mac.yml` and the build it names. It is for trying an update
  * between two local builds without publishing anything.
  */
-const TEST_FEED = process.env.FOC_UPDATE_FEED
+const TEST_FEED = process.env.FAI_UPDATE_FEED
 
 /** Release notes as plain text. GitHub sends HTML; a list of versions is joined. */
 const notesOf = (notes: unknown): string | null => {
@@ -71,7 +71,7 @@ export class Updates extends Context.Service<Updates, {
   /** Restarts into the version that was downloaded. */
   readonly install: Effect.Effect<void>
   setMode(mode: UpdateMode): Effect.Effect<void>
-}>()("foc/main/Updates") {
+}>()("fai/main/Updates") {
   static readonly layer = Layer.effect(
     Updates,
     Effect.gen(function*() {

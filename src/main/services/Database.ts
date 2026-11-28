@@ -7,7 +7,7 @@ import { Thread } from "../../shared/domain.ts"
 import { writeThread } from "./ThreadStore.ts"
 
 /** The database file, inside the app's data directory. */
-export const DATABASE_FILE = "future-of-coding.db"
+export const DATABASE_FILE = "future-of-ai-interface.db"
 
 const createTables = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient

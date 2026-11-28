@@ -55,7 +55,7 @@ export class SettingsStore extends Context.Service<SettingsStore, {
   update(patch: SettingsPatch): Effect.Effect<Settings>
   /** The stored key, or `OPENAI_API_KEY` from the environment. */
   readonly openAiKey: Effect.Effect<Option.Option<Redacted.Redacted<string>>>
-}>()("foc/main/SettingsStore") {
+}>()("fai/main/SettingsStore") {
   static readonly layer = Layer.effect(
     SettingsStore,
     Effect.gen(function*() {

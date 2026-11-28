@@ -33,7 +33,7 @@ const missing = (file: string): ArtifactContent => ({
 export class Artifacts extends Context.Service<Artifacts, {
   read(threadId: string, artifactId: string): Effect.Effect<ArtifactContent>
   reveal(threadId: string, artifactId: string): Effect.Effect<void>
-}>()("foc/main/Artifacts") {
+}>()("fai/main/Artifacts") {
   static readonly layer = Layer.effect(
     Artifacts,
     Effect.gen(function*() {
