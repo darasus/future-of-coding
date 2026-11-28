@@ -176,7 +176,8 @@ const spokenModes: Record<string, PermissionMode> = {
 
 const boardBriefing = `While this conversation runs you receive board updates: a thread needs the user's
 approval, a thread has a question for them, a thread finished, or a thread failed. Pass each one on to the user
-in a sentence or two as soon as it arrives, even if they did not ask. When a thread has a question, read the
+as soon as it arrives, even if they did not ask: a finished or failed thread in one short sentence and no
+more, a question or a request for approval in as many words as they need to decide. When a thread has a question, read the
 question and its options and pass on what they answer; never answer it for them. When a thread needs approval, say what it is asking for and ask the
 user whether to allow it. If they answer, delegate their decision to the backend. Never approve or decline on
 your own: the decision is always the user's, and this conversation is the only place they can give it.
@@ -852,6 +853,21 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         }))
       }
 
+      /**
+       * Gives the conversation something to know without saying it. With
+       * nothing to know it is still worth sending: anything appended this way
+       * cancels the word the voice was about to fill a wait with.
+       */
+      const note = (channel: RTCDataChannel, content: string) => {
+        if (channel.readyState !== "open") return
+        channel.send(JSON.stringify({
+          type: "session.thinking.append",
+          event_id: `note_${++updates}`,
+          delegation_id: null,
+          content: clip(content, MAX_UPDATE)
+        }))
+      }
+
       const watchBoard = (channel: RTCDataChannel): (() => void) => {
         const seen = new Map<string, Seen>()
         const askTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -918,11 +934,15 @@ export class VoiceClient extends Context.Service<VoiceClient, {
               scheduleAsk(thread.id, title)
             } else if (before !== undefined && before.status !== thread.status && thread.status === "done") {
               const files = thread.artifacts.length
+              // What it produced is known, not said: the user asks when they want it.
+              if (thread.preview !== "") {
+                note(channel, `For when the user asks, not to be said now: the thread "${title}" ended with: ${clip(thread.preview, 400)}`)
+              }
               say(
                 channel,
                 `Board update: the thread "${title}" finished.` +
                   (files > 0 ? ` It changed ${files} ${files === 1 ? "file" : "files"}.` : "") +
-                  (thread.preview === "" ? "" : ` Claude's last message: ${clip(thread.preview, 400)}`)
+                  " Say only that."
               )
             } else if (before !== undefined && before.status !== thread.status && thread.status === "error") {
               say(channel, `Board update: the thread "${title}" stopped with an error and needs a look.`)
@@ -1032,6 +1052,10 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         }
         if (!Predicate.isObject(event) || !("type" in event)) return
         switch (event.type) {
+          case "session.delegation.created":
+            // A tool is about to run. The label on screen says which; the voice says nothing.
+            note(channel, "")
+            break
           case "session.started":
             channel.send(JSON.stringify({
               type: "session.instructions.append",
