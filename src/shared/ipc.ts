@@ -30,6 +30,8 @@ export const Rpcs = {
   "threads.create": rpc(
     Schema.Struct({
       prompt: Schema.String,
+      /** A few words naming the task, written by whoever starts the thread. Without one the prompt's first line is used. */
+      title: Schema.optionalKey(Schema.String),
       cwd: Schema.NullOr(Schema.String),
       model: Schema.NullOr(Schema.String),
       permissionMode: Schema.NullOr(PermissionMode),

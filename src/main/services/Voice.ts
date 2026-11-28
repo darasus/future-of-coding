@@ -31,6 +31,9 @@ you pass something on, say in a few words which thread it went to.`
 
 const backendInstructions = `You operate a board of coding-agent threads through tools.
 - start_thread: begin new work. Write the prompt as a complete, self-contained task for a coding agent.
+  Give it a title: two to six words that name the task the way you would say it aloud, such as
+  "Black Friday laptop deals" or "Fix the login redirect". No quotes, no full stop, and not the
+  user's sentence cut short. It is how the thread is listed on screen and how you refer to it afterwards.
   Pass folder when the user names where to work; leave it out to use their default folder.
   Pass intelligence when the user says how demanding the task is: low for simple or mechanical work
   ("this is easy", "little intelligence"), medium for everyday coding, high for hard problems, best
@@ -81,6 +84,7 @@ const fn = (name: string, description: string, properties: Record<string, unknow
 export const voiceTools = [
   fn("start_thread", "Start a new coding thread with a Claude agent.", {
     prompt: { type: "string", description: "The full task for the coding agent." },
+    title: { type: "string", description: "Two to six words naming the task, as the thread's title on screen." },
     folder: {
       type: "string",
       description: "Where to work: an absolute path, a path under ~, or a folder inside the user's default folder."
@@ -90,7 +94,7 @@ export const voiceTools = [
       enum: ["low", "medium", "high", "best"],
       description: "How much intelligence the task needs. Only when the user says so."
     }
-  }, ["prompt"]),
+  }, ["prompt", "title"]),
   fn("set_intelligence", "Change how much intelligence an existing thread runs with.", {
     level: { type: "string", enum: ["low", "medium", "high", "best"] },
     thread_id: { type: "string", description: "Leave out when only one thread is working or waiting." }
