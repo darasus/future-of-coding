@@ -3,7 +3,10 @@ import {
   Account,
   ArtifactContent,
   InputSource,
+  MemoryNote,
   PermissionMode,
+  Project,
+  Recap,
   Settings,
   SettingsPatch,
   Thread,
@@ -83,6 +86,13 @@ export const Rpcs = {
   "updates.download": rpc(Schema.Void, Schema.Void),
   "updates.install": rpc(Schema.Void, Schema.Void),
   "updates.setMode": rpc(Schema.Struct({ mode: UpdateMode }), Schema.Void),
+  /** The projects whose names fit what was said, best first; with nothing said, the most recently changed. */
+  "projects.find": rpc(Schema.Struct({ query: Schema.String }), Schema.Array(Project)),
+  "memory.list": rpc(Schema.Void, Schema.Array(MemoryNote)),
+  "memory.add": rpc(Schema.Struct({ text: Schema.String }), MemoryNote),
+  "memory.remove": rpc(Schema.Struct({ id: Schema.String }), Schema.Void),
+  "memory.recap": rpc(Schema.Void, Schema.NullOr(Recap)),
+  "memory.setRecap": rpc(Schema.Struct({ text: Schema.String }), Schema.Void),
   /** The window says whether a conversation is running, so the app knows when to notify instead. */
   "voice.status": rpc(Schema.Struct({ live: Schema.Boolean }), Schema.Void),
   "voice.connect": rpc(
@@ -107,6 +117,7 @@ export const AppEvent = Schema.Union([
   Schema.TaggedStruct("ThreadDeleted", { id: Schema.String }),
   Schema.TaggedStruct("Account", { account: Account }),
   Schema.TaggedStruct("Update", { status: UpdateStatus }),
+  Schema.TaggedStruct("Memories", { memories: Schema.Array(MemoryNote) }),
   /** Put this thread on screen: its notification was clicked. */
   Schema.TaggedStruct("Reveal", { threadId: Schema.String }),
   /** Start or stop the conversation: the global shortcut was pressed. */

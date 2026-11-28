@@ -17,6 +17,8 @@ import {
 } from "../../shared/domain.ts"
 import { type AgentSession, openSession, sdkMode } from "./agent.ts"
 import { Events } from "./Events.ts"
+import { Memory } from "./Memory.ts"
+import { Projects } from "./Projects.ts"
 import { SettingsStore } from "./SettingsStore.ts"
 import { ThreadStore } from "./ThreadStore.ts"
 
@@ -239,6 +241,14 @@ const MAX_TITLE = 60
  * the thread; it is tidied here, because a model now and then wraps a title in
  * quotes or ends it like a sentence. Without one, the task's first line stands in.
  */
+/** What the person asked to have remembered, as part of an agent's briefing. Empty when there is nothing. */
+const standingInstructions = (notes: ReadonlyArray<string>) =>
+  notes.length === 0
+    ? ""
+    : "The person you work for asked for the following to be remembered. Treat each as a standing instruction " +
+      "or a fact about them and their setup, and follow it unless this task says otherwise:\n" +
+      notes.map((note) => `- ${note}`).join("\n")
+
 const titleOf = (prompt: string, given: string | undefined) => {
   const tidy = (given ?? "").replace(/\s+/g, " ").trim().replace(/^["'“‘`]+|["'”’`]+$/g, "").replace(/[.:;,]+$/, "").trim()
   return oneLine(tidy, MAX_TITLE) || oneLine(prompt, 72) || "New thread"
@@ -309,6 +319,8 @@ export class Threads extends Context.Service<Threads, {
       const store = yield* ThreadStore
       const settings = yield* SettingsStore
       const events = yield* Events
+      const projects = yield* Projects
+      const memory = yield* Memory
       const scope = yield* Effect.scope
 
       const threads = new Map<string, MutableThread>()
@@ -752,13 +764,15 @@ export class Threads extends Context.Service<Threads, {
       const start = Effect.fnUntraced(function*(thread: MutableThread, text: string) {
         const live = liveOf(thread.id)
         const { preferSubscription } = yield* settings.get
+        const notes = yield* memory.list
         const session = openSession({
           cwd: thread.cwd,
           model: thread.model,
           permissionMode: thread.permissionMode,
           resume: thread.sessionId,
           preferSubscription,
-          canUseTool: askPermission(thread, live)
+          canUseTool: askPermission(thread, live),
+          briefing: standingInstructions(notes.map((note) => note.text))
         })
         live.session = session
         live.stopping = false
@@ -795,7 +809,8 @@ export class Threads extends Context.Service<Threads, {
           permissionMode: "plan",
           resume: null,
           preferSubscription,
-          canUseTool: () => Promise.resolve({ behavior: "deny", message: "Not available." })
+          canUseTool: () => Promise.resolve({ behavior: "deny", message: "Not available." }),
+          briefing: ""
         })
         const info = yield* Effect.tryPromise(() => probe.query.accountInfo()).pipe(
           Effect.timeout("20 seconds"),
@@ -821,9 +836,25 @@ export class Threads extends Context.Service<Threads, {
           }),
         create: Effect.fn("Threads.create")(function*(input) {
           const defaults = yield* settings.get
-          const cwd = input.cwd === null ? defaults.defaultCwd : resolveFolder(input.cwd, defaults.defaultCwd)
-          const exists = yield* Effect.promise(() => fs.stat(cwd).then((stat) => stat.isDirectory(), () => false))
-          if (!exists) return yield* new ThreadError({ message: `There is no folder at ${cwd}.` })
+          const isFolder = (folder: string) =>
+            Effect.promise(() => fs.stat(folder).then((stat) => stat.isDirectory(), () => false))
+          let cwd = input.cwd === null ? defaults.defaultCwd : resolveFolder(input.cwd, defaults.defaultCwd)
+          if (!(yield* isFolder(cwd))) {
+            // Not a path: it may be a project's name, as someone would say it.
+            const said = input.cwd ?? ""
+            const project = said === "" ? null : yield* projects.resolve(said)
+            if (project === null) {
+              const near = said === "" ? [] : yield* projects.find(said)
+              return yield* new ThreadError({
+                message: near.length === 0
+                  ? `There is no folder at ${cwd}, and no project with a name like "${said}".`
+                  : `There is no folder called "${said}". The closest projects are ${
+                    near.slice(0, 4).map((match) => `${match.project.name} (${match.project.path})`).join(", ")
+                  }. Ask the user which one they mean, then pass its path as folder.`
+              })
+            }
+            cwd = project.path
+          }
           const now = Date.now()
           const thread: MutableThread = {
             id: randomUUID(),

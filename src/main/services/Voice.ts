@@ -27,7 +27,15 @@ thread is open, take what they say as being about that thread unless it clearly 
 question about it from the thread itself. A request for more work on it, or a question its own agent is
 better placed to answer than you are, goes to that same thread as a follow-up: do not start a new thread
 for it. Start a new thread only for a new, unrelated task, or when they ask for a new thread. Whenever
-you pass something on, say in a few words which thread it went to.`
+you pass something on, say in a few words which thread it went to.
+At the start of each conversation you are told, silently, the names of the user's projects, what they have
+asked you to remember, and how your last conversation with them ended. Use all three without saying you
+were told. When the user names a project, pass its name on exactly as it is written in that list, so the
+work starts in the right folder; if you cannot tell which project they mean, ask.
+When the user asks you to remember something, or states a lasting preference or fact about how they work
+("always use pnpm", "from now on…", "my notes are in the vault folder"), delegate it to be remembered and
+confirm in a few words. When they ask you to forget something, delegate that. Never store passwords, keys
+or anything they did not mean to keep.`
 
 const backendInstructions = `You operate a board of coding-agent threads through tools.
 - start_thread: begin new work. Write the prompt as a complete, self-contained task for a coding agent.
@@ -38,6 +46,16 @@ const backendInstructions = `You operate a board of coding-agent threads through
   Pass intelligence when the user says how demanding the task is: low for simple or mechanical work
   ("this is easy", "little intelligence"), medium for everyday coding, high for hard problems, best
   when they ask for the best or smartest model. Leave it out when they say nothing about it.
+  folder may also be a project's name, such as "billing-api": it is matched against the user's projects.
+  If the result says there is no such folder and lists close projects, ask the user which they mean.
+- find_project: find which folder a project lives in, from its name or part of it. Use it when the user
+  asks where something is or which projects they have, or before start_thread when you are unsure which
+  project they mean. With an empty query it lists the most recently changed projects. Never start a
+  thread just to look for a project.
+- remember: keep something the user asked you to remember, or a lasting preference they stated, as one
+  short sentence in their words. It is told to you again at the start of every later conversation and
+  given to every thread as a standing instruction. Only what the user actually said; never secrets.
+- forget: drop something remembered, when the user asks. Pass their words for it.
 - set_intelligence: change the model an existing thread runs on, the same way, when the user asks.
 - stop_thread: stop a thread that is working, when the user asks.
 - list_threads: see every thread with its status and latest activity.
@@ -87,7 +105,7 @@ export const voiceTools = [
     title: { type: "string", description: "Two to six words naming the task, as the thread's title on screen." },
     folder: {
       type: "string",
-      description: "Where to work: an absolute path, a path under ~, or a folder inside the user's default folder."
+      description: "Where to work: a project's name, an absolute path, a path under ~, or a folder inside the user's default folder."
     },
     intelligence: {
       type: "string",
@@ -95,6 +113,15 @@ export const voiceTools = [
       description: "How much intelligence the task needs. Only when the user says so."
     }
   }, ["prompt", "title"]),
+  fn("find_project", "Find the folder a project lives in by its name, or list recent projects.", {
+    query: { type: "string", description: "The project's name or part of it, as the user said it. Empty for the most recent projects." }
+  }, ["query"]),
+  fn("remember", "Remember something for later conversations, once the user has asked for that or stated a lasting preference.", {
+    text: { type: "string", description: "One short sentence, in the user's words or close to them." }
+  }, ["text"]),
+  fn("forget", "Forget something that was remembered, once the user has asked for that.", {
+    text: { type: "string", description: "The user's words for what to forget." }
+  }, ["text"]),
   fn("set_intelligence", "Change how much intelligence an existing thread runs with.", {
     level: { type: "string", enum: ["low", "medium", "high", "best"] },
     thread_id: { type: "string", description: "Leave out when only one thread is working or waiting." }

@@ -68,6 +68,19 @@ const createTables = Effect.gen(function*() {
   yield* sql`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`
 })
 
+/** What the assistant was asked to remember (`note`) and how the last conversation ended (`recap`). */
+const createMemories = Effect.gen(function*() {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`
+    CREATE TABLE memories (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `
+})
+
 const readJson = (file: string) =>
   Effect.promise(() =>
     fs.readFile(file, "utf8").then(
@@ -114,7 +127,8 @@ export const layer = (root: string) =>
   SqliteMigrator.layer({
     loader: SqliteMigrator.fromRecord({
       "0001_create_tables": createTables,
-      "0002_import_json_files": importJsonFiles(root)
+      "0002_import_json_files": importJsonFiles(root),
+      "0003_create_memories": createMemories
     })
   }).pipe(
     Layer.provideMerge(SqliteClient.layer({ filename: path.join(root, DATABASE_FILE) })),

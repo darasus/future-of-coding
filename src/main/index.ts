@@ -8,6 +8,8 @@ import { EVENT_CHANNEL, RPC_CHANNEL, type RpcReply, Rpcs } from "../shared/ipc.t
 import { handlers, type Services as HandlerServices } from "./handlers.ts"
 import { Artifacts } from "./services/Artifacts.ts"
 import { Attention } from "./services/Attention.ts"
+import { Memory } from "./services/Memory.ts"
+import { Projects } from "./services/Projects.ts"
 import { Shortcut } from "./services/Shortcut.ts"
 import { Events } from "./services/Events.ts"
 import { SettingsStore } from "./services/SettingsStore.ts"
@@ -192,7 +194,9 @@ const main = async () => {
 
   const Services = Layer.mergeAll(Artifacts.layer, Voice.layer, Updates.layer, Attention.layer, Shortcut.layer).pipe(
     Layer.provideMerge(Threads.layer),
+    Layer.provideMerge(Projects.layer),
     Layer.provideMerge(SettingsStore.layer),
+    Layer.provideMerge(Memory.layer),
     Layer.provideMerge(Events.layer),
     Layer.provideMerge(ThreadStore.layer),
     Layer.provideMerge(Database.layer(app.getPath("userData")))

@@ -83,7 +83,10 @@ const toolLabels: Record<string, string> = {
   set_intelligence: "Choosing a model",
   open_thread: "Opening a thread",
   close_thread: "Back to the list",
-  delete_threads: "Deleting threads"
+  delete_threads: "Deleting threads",
+  find_project: "Finding the project",
+  remember: "Remembering",
+  forget: "Forgetting"
 }
 
 /**

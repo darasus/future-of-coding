@@ -3,8 +3,11 @@ import {
   type Intelligence,
   intelligenceModels,
   type Item,
+  type MemoryNote,
   type PermissionMode,
+  type Project,
   type Question,
+  type Recap,
   type ThreadStatus,
   type ThreadSummary,
   type Todo,
@@ -103,6 +106,25 @@ interface Seen {
 /** A context append is limited to 500 tokens, so updates are kept short. */
 const MAX_UPDATE = 900
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
+
+/** How long ago something was, the way someone would say it. */
+const ago = (at: number) => {
+  const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000))
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`
+  const days = Math.round(hours / 24)
+  return days < 60 ? `${days} day${days === 1 ? "" : "s"} ago` : `${Math.round(days / 30)} months ago`
+}
+
+/** The words of a sentence that carry its meaning, for matching one sentence against another. */
+const keyWords = (text: string) =>
+  new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2))
+
+/** A recap older than this is no longer the conversation someone is picking up. */
+const RECAP_FRESH_MS = 12 * 60 * 60_000
+const RECAP_TURNS = 8
 
 /** A task list in a sentence, for the voice model to pass on. */
 const taskProgress = (todos: ReadonlyArray<Todo>) => {
@@ -205,6 +227,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
         if (session === null) return
         const ending = session
         session = null
+        saveRecap()
         reportLive(false)
         cue(false)
         ending.stopWatching()
@@ -516,6 +539,115 @@ export class VoiceClient extends Context.Service<VoiceClient, {
       })
 
       // -------------------------------------------------------------------
+      // What carries over: projects, memories, and the last conversation
+      // -------------------------------------------------------------------
+
+      /** The conversation so far, one entry per stretch of speech, for the recap. */
+      let turns: Array<{ role: "user" | "assistant"; text: string }> = []
+
+      const noteSpeech = (role: "user" | "assistant", delta: string) => {
+        const last = turns.at(-1)
+        if (last?.role === role) last.text += delta
+        else turns.push({ role, text: delta })
+      }
+
+      /** Keeps the end of this conversation for the next one, if the user said anything in it. */
+      function saveRecap() {
+        const spoken = turns
+        turns = []
+        if (!spoken.some((turn) => turn.role === "user" && turn.text.trim() !== "")) return
+        const text = spoken.slice(-RECAP_TURNS)
+          .map((turn) => `${turn.role === "user" ? "User" : "You"}: ${clip(turn.text.replace(/\s+/g, " ").trim(), 220)}`)
+          .join("\n")
+        void window.fai.invoke("memory.setRecap", { text })
+      }
+
+      let briefings = 0
+      /** Tells a new conversation, without it speaking, what it would otherwise have to ask. */
+      const briefSession = async (channel: RTCDataChannel) => {
+        const [projects, notes, recap] = await Promise.all([
+          window.fai.invoke("projects.find", { query: "" }),
+          window.fai.invoke("memory.list", undefined),
+          window.fai.invoke("memory.recap", undefined)
+        ])
+        if (channel.readyState !== "open" || session?.channel !== channel) return
+        const tell = (content: string) =>
+          channel.send(JSON.stringify({
+            type: "session.instructions.append",
+            event_id: `brief_${++briefings}`,
+            delegation_id: null,
+            content: clip(content, MAX_UPDATE)
+          }))
+        const names = projects.ok ? (projects.value as ReadonlyArray<Project>).map((project) => project.name) : []
+        if (names.length > 0) {
+          tell(
+            "Projects on this Mac, most recently changed first: " + names.join(", ") +
+              ". When the user names one, pass its name on as written here. Do not read this list out unless asked."
+          )
+        }
+        const remembered = notes.ok ? (notes.value as ReadonlyArray<MemoryNote>).map((note) => note.text) : []
+        if (remembered.length > 0) {
+          tell(
+            "The user asked you to remember: " + remembered.map((note, index) => `(${index + 1}) ${note}`).join(" ") +
+              " Follow these. Do not mention that you were reminded."
+          )
+        }
+        const last = recap.ok ? recap.value as Recap | null : null
+        if (last !== null && Date.now() - last.at < RECAP_FRESH_MS) {
+          tell(
+            `Your last conversation with the user ended ${ago(last.at)}. Its final turns:\n${last.text}\n` +
+              "This is background. Do not bring it up unless the user refers to it."
+          )
+        }
+      }
+
+      const findProject = (query: string) =>
+        bridge.call("projects.find", { query }).pipe(
+          Effect.map((projects) =>
+            projects.length === 0
+              ? { error: "No project has a name like that. Ask the user for the folder, or call find_project with an empty query to hear the recent ones." }
+              : projects.slice(0, 8).map((project) => ({
+                name: project.name,
+                folder: project.path,
+                last_changed: ago(project.modifiedAt)
+              }))
+          ),
+          Effect.catch((error) => Effect.succeed({ error: error.message }))
+        )
+
+      const remember = (note: string) =>
+        note.trim() === ""
+          ? Effect.succeed({ error: "Pass text: what to remember, as one short sentence." })
+          : bridge.call("memory.add", { text: note }).pipe(
+            Effect.map((saved) => ({ remembered: saved.text, note: "It applies from the next thread and the next conversation on." })),
+            Effect.catch((error) => Effect.succeed({ error: error.message }))
+          )
+
+      /** Forgets the remembered thing that shares the most words with what was said. */
+      const forget = Effect.fnUntraced(function*(said: string) {
+        const notes = yield* bridge.call("memory.list", undefined).pipe(Effect.catch(() => Effect.succeed([])))
+        const wanted = keyWords(said)
+        const scored = notes
+          .map((note) => {
+            const has = keyWords(note.text)
+            const shared = [...wanted].filter((word) => has.has(word)).length
+            return { note, score: wanted.size === 0 ? 0 : shared / wanted.size }
+          })
+          .sort((a, b) => b.score - a.score)
+        const best = scored[0]
+        if (best === undefined || best.score < 0.5 || (scored[1] !== undefined && scored[1].score === best.score)) {
+          return {
+            error: notes.length === 0
+              ? "Nothing is remembered."
+              : "It is not clear which one they mean. Read them the list and ask.",
+            remembered: notes.slice(0, 20).map((note) => note.text)
+          }
+        }
+        yield* Effect.ignore(bridge.call("memory.remove", { id: best.note.id }))
+        return { forgot: best.note.text }
+      })
+
+      // -------------------------------------------------------------------
       // The app's own updates
       // -------------------------------------------------------------------
 
@@ -562,10 +694,17 @@ export class VoiceClient extends Context.Service<VoiceClient, {
                 thread_id: thread.id,
                 title: thread.title,
                 status: thread.status,
+                folder: thread.cwd,
                 model: thread.model ?? "default"
               })),
               Effect.catch((error) => Effect.succeed({ error: error.message }))
             )
+          case "find_project":
+            return findProject(text("query"))
+          case "remember":
+            return remember(text("text"))
+          case "forget":
+            return forget(text("text"))
           case "set_intelligence": {
             const level = text("level")
             return isIntelligence(level)
@@ -852,6 +991,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
             }))
             if (session !== null) session.stopWatching = watchBoard(channel)
             if (onScreen !== null) void tellScreen(channel)
+            void briefSession(channel)
             reportLive(true)
             cue(true)
             emit({ _tag: "Started" })
@@ -865,6 +1005,7 @@ export class VoiceClient extends Context.Service<VoiceClient, {
               for (const question of asked.values()) question.spoke = true
             }
             if ("delta" in event && Predicate.isString(event.delta)) {
+              noteSpeech(event.type === "session.input_transcript.delta" ? "user" : "assistant", event.delta)
               emit({
                 _tag: "Heard",
                 role: event.type === "session.input_transcript.delta" ? "user" : "assistant",

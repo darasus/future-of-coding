@@ -1585,6 +1585,29 @@ button.update-pill:active {
   user-select: text;
 }
 
+/* What the assistant was asked to remember: one line each, with a way to drop it. */
+.memory-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.memory-list li > span {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-2);
+  user-select: text;
+}
+
 .setting-row .is-error {
   color: var(--red);
 }

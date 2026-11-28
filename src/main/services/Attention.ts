@@ -76,7 +76,7 @@ export class Attention extends Context.Service<Attention, {
           if (thread.pendingQuestions > before.questions) {
             notify(thread, "Has a question for you", "It is waiting for your answer.")
           } else if (thread.pendingPermissions > 0 && before.approvals === 0) {
-            notify(thread, "Needs your approval", oneLine(thread.activity, 140) || "It is waiting for you to allow a step.")
+            notify(thread, "Needs your approval", "It is paused until you allow or decline a step.")
           } else if (thread.status !== before.status && thread.status === "done") {
             notify(thread, "Finished", oneLine(thread.preview, 180))
           } else if (thread.status !== before.status && thread.status === "error") {

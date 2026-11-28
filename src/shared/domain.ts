@@ -279,6 +279,26 @@ export const SettingsPatch = Schema.Struct({
 })
 export type SettingsPatch = typeof SettingsPatch.Type
 
+/** A folder on this machine that holds a project: one with a repository or a manifest in it. */
+export const Project = Schema.Struct({
+  name: Schema.String,
+  path: Schema.String,
+  modifiedAt: Schema.Number
+})
+export type Project = typeof Project.Type
+
+/** Something the person asked the assistant to remember, in their words or close to them. */
+export const MemoryNote = Schema.Struct({
+  id: Schema.String,
+  text: Schema.String,
+  createdAt: Schema.Number
+})
+export type MemoryNote = typeof MemoryNote.Type
+
+/** The last few turns of the previous conversation, kept so the next one can pick up from it. */
+export const Recap = Schema.Struct({ text: Schema.String, at: Schema.Number })
+export type Recap = typeof Recap.Type
+
 export const Account = Schema.Struct({
   state: Schema.Literals(["unknown", "subscription", "apiKey", "signedOut"]),
   detail: Schema.String,

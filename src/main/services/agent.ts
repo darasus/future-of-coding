@@ -101,6 +101,8 @@ export interface AgentSessionOptions {
   readonly resume: string | null
   readonly preferSubscription: boolean
   readonly canUseTool: CanUseTool
+  /** What this session should know on top of the usual briefing, or an empty string. */
+  readonly briefing: string
 }
 
 /**
@@ -159,7 +161,7 @@ export const openSession = (options: AgentSessionOptions): AgentSession => {
     permissionMode: sdkMode(options.permissionMode),
     includePartialMessages: true,
     canUseTool: options.canUseTool,
-    systemPrompt: { type: "preset", preset: "claude_code", append: `${taskListBriefing}\n\n${questionBriefing}` },
+    systemPrompt: { type: "preset", preset: "claude_code", append: [taskListBriefing, questionBriefing, options.briefing].filter((part) => part !== "").join("\n\n") },
     // The task tools are only offered when asked for. They are bookkeeping, so they never prompt.
     // AskUserQuestion is left out on purpose: it has to reach `canUseTool`, which is where it is answered.
     allowedTools: ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"],
